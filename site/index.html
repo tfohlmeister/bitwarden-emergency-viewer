@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bitwarden Emergency Viewer</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #fff; --ink: #1a1a18; --muted: #6b6b66;
+    --line: #e0e0da; --accent: #3a5f9e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --panel: #1f1f25; --ink: #e8e8e4; --muted: #9a9a94;
+      --line: #33333c; --accent: #7ea3dd;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 48px 20px 80px; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 17px; margin: 34px 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 32px; }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size: .92em; }
+  ol { padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 20px 22px; margin-bottom: 16px;
+  }
+  .pw { font-family: var(--mono); background: var(--bg); border: 1px solid var(--line);
+        border-radius: 5px; padding: 1px 7px; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Bitwarden Emergency Viewer</h1>
+  <p class="sub">
+    One HTML file that opens a password-protected Bitwarden or Vaultwarden export
+    with nothing but a browser. No server, no account, no network.
+  </p>
+
+  <div class="card">
+    <h2 style="margin-top:0">Try it</h2>
+    <ol>
+      <li>Download the <a href="demo-vault.json" download>demo export</a>.</li>
+      <li>Open the <a href="viewer.html">viewer</a>.</li>
+      <li>Choose the file you just downloaded and enter the master password
+        <span class="pw">demo</span>.</li>
+    </ol>
+    <p style="margin-bottom:0; color: var(--muted)">
+      The demo vault holds invented entries only. It uses Bitwarden's own Argon2id
+      defaults, so unlocking takes a few seconds; that is the key derivation doing
+      its job.
+    </p>
+  </div>
+
+  <h2>Why the file picker and not a link</h2>
+  <p>
+    The viewer declares <code>default-src 'none'</code> and loads nothing at all, so
+    it cannot fetch the export for you even here. That restriction is the point:
+    a page that cannot reach the network cannot leak a decrypted vault. The file
+    reaches it through the picker, which needs no permission and no connection.
+  </p>
+
+  <h2>In an emergency</h2>
+  <p>
+    Save <code>viewer.html</code> next to your export in the same backup. This page
+    exists to demonstrate the tool, not to be a dependency: if you have to visit a
+    website to read your passwords, the tool has already failed.
+  </p>
+
+  <footer>
+    Source, security model and tests:
+    <a href="https://github.com/tfohlmeister/bitwarden-emergency-viewer">github.com/tfohlmeister/bitwarden-emergency-viewer</a>
+  </footer>
+</main>
+</body>
+</html>

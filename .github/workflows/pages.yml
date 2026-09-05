@@ -1,0 +1,45 @@
+name: Demo page
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # GitHub Pages needs a public repository on the free plan, so this job sits
+    # out until the repository is made public and starts working on its own.
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp site/index.html _site/index.html
+          cp site/demo-vault.json _site/demo-vault.json
+          # The viewer is shipped verbatim. A demo that differs from the file
+          # people download would be worse than no demo.
+          cp vault.html _site/viewer.html
+          diff vault.html _site/viewer.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly, because the things most likely to break this page are not in this
+  # repo: a new Bitwarden export format, a new browser release.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Crypto and browsers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Install browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Browser tests
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  bitwarden-format:
+    name: Against a real Vaultwarden
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Registers an account with Argon2id on a throwaway Vaultwarden and has
+      # the official Bitwarden CLI write the encrypted export, overwriting the
+      # committed fixture. The assertions below then run against what today's
+      # Bitwarden produces rather than against what it produced when the fixture
+      # was recorded.
+      - name: Export from a throwaway Vaultwarden
+        run: node tools/vaultwarden-fixture.mjs
+
+      - name: The page opens what Bitwarden wrote
+        run: node --test test/bitwarden-format.test.mjs
+
+      - name: Report drift in the recorded fixture
+        if: always()
+        run: |
+          # Salt and ciphertext are random per export, so a diff is expected and
+          # is not a failure. Only the KDF envelope is worth looking at.
+          git diff --no-color -- test/fixtures/vaultwarden-argon2id.json \
+            | grep -E '^[-+].*"kdf' || echo "KDF envelope unchanged"

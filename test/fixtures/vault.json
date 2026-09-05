@@ -1,0 +1,91 @@
+{
+  "folders": [
+    {
+      "id": "6f1c9f5e-0000-4000-8000-000000000001",
+      "name": "Infrastructure"
+    }
+  ],
+  "items": [
+    {
+      "id": "a0000000-0000-4000-8000-000000000001",
+      "type": 1,
+      "name": "Example Mail",
+      "folderId": "6f1c9f5e-0000-4000-8000-000000000001",
+      "notes": "Recovery codes are in the safe.\nSecond line, to prove line breaks survive.",
+      "login": {
+        "username": "ada@example.com",
+        "password": "correct-horse-battery-staple",
+        "totp": "JBSWY3DPEHPK3PXP",
+        "uris": [
+          {
+            "uri": "https://mail.example.com"
+          }
+        ]
+      },
+      "fields": [
+        {
+          "name": "Account number",
+          "value": "AC-4711",
+          "type": 0
+        },
+        {
+          "name": "PIN",
+          "value": "8842",
+          "type": 1
+        }
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000002",
+      "type": 1,
+      "name": "Example Router",
+      "login": {
+        "username": "admin",
+        "password": "hunter2-but-longer",
+        "uris": [
+          {
+            "uri": "https://192.0.2.1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000003",
+      "type": 3,
+      "name": "Example Card",
+      "card": {
+        "number": "4111111111111111",
+        "expMonth": "11",
+        "expYear": "2031",
+        "code": "123"
+      }
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000004",
+      "type": 4,
+      "name": "Example Identity",
+      "identity": {
+        "firstName": "Ada",
+        "lastName": "Lovelace",
+        "email": "ada@example.com",
+        "phone": "+1 555 0100",
+        "address1": "1 Example Street",
+        "city": "Springfield",
+        "postalCode": "12345",
+        "country": "US",
+        "passportNumber": "X1234567"
+      }
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000005",
+      "type": 5,
+      "name": "Example SSH Key",
+      "folderId": "6f1c9f5e-0000-4000-8000-000000000001",
+      "sshKey": {
+        "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nbm90LWEtcmVhbC1rZXk=\n-----END OPENSSH PRIVATE KEY-----",
+        "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyNotReal",
+        "keyFingerprint": "SHA256:ExampleFingerprintNotReal"
+      }
+    }
+  ]
+}

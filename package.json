@@ -1,0 +1,35 @@
+{
+  "name": "bitwarden-emergency-viewer",
+  "version": "1.0.0",
+  "description": "Offline single-file browser viewer for password-protected Bitwarden and Vaultwarden exports",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "fixtures": "node tools/make-fixtures.mjs",
+    "fixture:vaultwarden": "node tools/vaultwarden-fixture.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:e2e": "playwright test",
+    "check": "npm run test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@bitwarden/cli": "^2026.6.0",
+    "@noble/hashes": "^2.0.1",
+    "@playwright/test": "^1.56.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tfohlmeister/bitwarden-emergency-viewer.git"
+  },
+  "keywords": [
+    "bitwarden",
+    "vaultwarden",
+    "argon2id",
+    "disaster-recovery",
+    "offline",
+    "password-manager"
+  ]
+}

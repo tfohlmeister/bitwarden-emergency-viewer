@@ -1,0 +1,956 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- No network, ever. The page holds a decrypted password vault, so the policy
+     that keeps it local is not a nicety: 'none' plus explicit self-only inline
+     style/script means a modified copy cannot phone home either. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vault Viewer</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #fff; --ink: #1a1a18; --muted: #6b6b66;
+    --line: #e0e0da; --accent: #3a5f9e; --warn: #9e4a2f; --ok: #2f6d4a;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --panel: #1f1f25; --ink: #e8e8e4; --muted: #9a9a94;
+      --line: #33333c; --accent: #7ea3dd; --warn: #d98a6a; --ok: #6cbb91;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 820px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 28px; font-size: 14px; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 20px; margin-bottom: 16px;
+  }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  input[type=password], input[type=text], input[type=search] {
+    width: 100%; padding: 9px 11px; font-size: 15px; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button {
+    font: inherit; padding: 9px 16px; border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.icon {
+    padding: 2px; margin-left: 8px; border: none; background: none;
+    color: var(--muted); line-height: 0; vertical-align: -3px; border-radius: 4px;
+  }
+  button.icon:hover { color: var(--ink); background: var(--bg); }
+  button.icon svg { width: 17px; height: 17px; display: block; }
+
+  /* Every value copies on click, so it has to look clickable and confirm. */
+  .val { cursor: pointer; border-radius: 3px; padding: 0 2px; margin: 0 -2px; }
+  .val:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .copied { color: var(--ok); font-size: 12px; margin-left: 8px; }
+
+  #drop {
+    border: 1.5px dashed var(--line); border-radius: 9px; padding: 22px;
+    text-align: center; color: var(--muted); cursor: pointer;
+  }
+  #drop.over { border-color: var(--accent); color: var(--accent); }
+  #drop strong { color: var(--ink); display: block; margin-bottom: 3px; }
+
+  .row { display: flex; gap: 10px; align-items: flex-end; margin-top: 14px; }
+  .row > div { flex: 1; }
+  .msg { margin-top: 12px; font-size: 14px; }
+  .msg.err { color: var(--warn); }
+  .msg.ok { color: var(--ok); }
+
+  #count { color: var(--muted); font-size: 13px; margin: 18px 0 10px; }
+
+  .entry { border-top: 1px solid var(--line); }
+  .entry:first-child { border-top: none; }
+  .entry > summary {
+    padding: 11px 4px; cursor: pointer; list-style: none;
+    display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+  }
+  .entry > summary::-webkit-details-marker { display: none; }
+  .entry[open] > summary { font-weight: 600; }
+  .entry .who { color: var(--muted); font-size: 13px; font-family: var(--mono); }
+  .body { padding: 4px 4px 18px; }
+
+  .f { display: grid; grid-template-columns: 92px 1fr; gap: 4px 12px; margin-bottom: 7px; }
+  .f > dt { color: var(--muted); font-size: 13px; padding-top: 2px; }
+  .f > dd { margin: 0; font-family: var(--mono); font-size: 13.5px; word-break: break-all; }
+  .secret { letter-spacing: .12em; }
+  .note { white-space: pre-wrap; font-family: inherit; font-size: 14px; }
+
+  .totp { font-size: 19px; letter-spacing: .16em; font-family: var(--mono); }
+  .totp .left { font-size: 12px; letter-spacing: 0; color: var(--muted); margin-left: 8px; }
+
+  footer { margin-top: 34px; color: var(--muted); font-size: 13px; }
+  code { font-family: var(--mono); font-size: .92em; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Vault Viewer</h1>
+  <p class="sub" id="sub">
+    Opens <code>vault-export.json</code> with your master password. Everything happens in
+    this browser window; nothing is sent anywhere.
+  </p>
+
+  <section class="card" id="unlock">
+    <div id="drop" tabindex="0" role="button">
+      <strong>Choose a file or drop it here</strong>
+      vault-export.json from the unpacked archive
+    </div>
+    <input type="file" id="file" accept=".json,application/json" class="hidden">
+
+    <div class="row">
+      <div>
+        <label for="pw">Master password</label>
+        <input type="password" id="pw" autocomplete="off" spellcheck="false" disabled>
+      </div>
+      <button id="go" class="primary" disabled>Unlock</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </section>
+
+  <section id="result" class="hidden">
+    <label for="q">Search</label>
+    <input type="search" id="q" placeholder="Name, username, folder, address" autocomplete="off">
+    <p id="count"></p>
+    <div id="list"></div>
+  </section>
+
+  <footer>
+    Click any value to copy it. Passwords stay hidden until you reveal them. Close the window
+    when you are done and the decrypted contents are gone with it. On a machine that is not
+    yours, the clipboard is the one leftover you have to clear yourself.
+  </footer>
+</main>
+
+<script>
+"use strict";
+
+// CRYPTO-BEGIN
+// Everything between the CRYPTO-BEGIN/CRYPTO-END markers is free of DOM access,
+// so it can be lifted out and run under Node. The test suite does that, and so
+// does the weekly job in the infrastructure repo that opens the real backup
+// with the real master password. Keep it that way: a browser-only tool that is
+// never exercised is a tool nobody knows is broken. Do not remove the markers.
+//
+// Mirrors what Bitwarden does for a password-protected export:
+//   masterKey = PBKDF2-SHA256(password, salt-as-STRING, kdfIterations)   kdfType 0
+//   masterKey = Argon2id(password, SHA-256(salt-as-STRING), ...)         kdfType 1
+//   encKey    = HKDF-Expand(masterKey, "enc")
+//   macKey    = HKDF-Expand(masterKey, "mac")
+// The whole vault is ONE EncString under "data", not one per field.
+
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+function b64(s) {
+  const raw = atob(s);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+function cat(...parts) {
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+}
+
+function le32(n) {
+  const b = new Uint8Array(4);
+  new DataView(b.buffer).setUint32(0, n, true);
+  return b;
+}
+
+// RFC 5869 expand only. WebCrypto's own HKDF would also run the extract step,
+// which would derive different keys than Bitwarden uses.
+async function hkdfExpand(prk, info, length = 32) {
+  const key = await crypto.subtle.importKey(
+    "raw", prk, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  let out = new Uint8Array(0), prev = new Uint8Array(0);
+  for (let i = 1; out.length < length; i++) {
+    prev = new Uint8Array(await crypto.subtle.sign(
+      "HMAC", key, cat(prev, enc.encode(info), new Uint8Array([i]))));
+    out = cat(out, prev);
+  }
+  return out.slice(0, length);
+}
+
+// --------------------------------------------------------------- blake2b ---
+// WebCrypto has no BLAKE2b and no Argon2, so both are implemented here. Argon2
+// needs BLAKE2b only for the initial hash, the variable-length H' and the final
+// tag: a few hundred calls over a whole derivation. That is cold code, so it
+// uses BigInt for the 64-bit words and stays readable. The hot loop further
+// down runs tens of millions of times and does not.
+
+const B2B_IV = [
+  0x6a09e667f3bcc908n, 0xbb67ae8584caa73bn, 0x3c6ef372fe94f82bn, 0xa54ff53a5f1d36f1n,
+  0x510e527fade682d1n, 0x9b05688c2b3e6c1fn, 0x1f83d9abfb41bd6bn, 0x5be0cd19137e2179n,
+];
+
+const B2B_SIGMA = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
+  [11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4],
+  [7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8],
+  [9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13],
+  [2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9],
+  [12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11],
+  [13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10],
+  [6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5],
+  [10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0],
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
+];
+
+const M64 = 0xffffffffffffffffn;
+
+function rotr64(x, n) {
+  return ((x >> n) | (x << (64n - n))) & M64;
+}
+
+function b2bCompress(h, m, counter, last) {
+  const v = [...h, ...B2B_IV];
+  v[12] ^= counter & M64;
+  // v[13] takes the high half of a 128-bit length counter. Nothing hashed here
+  // comes close to 2^64 bytes, so it stays zero.
+  if (last) v[14] ^= M64;
+
+  for (let r = 0; r < 12; r++) {
+    const s = B2B_SIGMA[r];
+    const mix = (a, b, c, d, x, y) => {
+      v[a] = (v[a] + v[b] + x) & M64;
+      v[d] = rotr64(v[d] ^ v[a], 32n);
+      v[c] = (v[c] + v[d]) & M64;
+      v[b] = rotr64(v[b] ^ v[c], 24n);
+      v[a] = (v[a] + v[b] + y) & M64;
+      v[d] = rotr64(v[d] ^ v[a], 16n);
+      v[c] = (v[c] + v[d]) & M64;
+      v[b] = rotr64(v[b] ^ v[c], 63n);
+    };
+    mix(0, 4, 8, 12, m[s[0]], m[s[1]]);
+    mix(1, 5, 9, 13, m[s[2]], m[s[3]]);
+    mix(2, 6, 10, 14, m[s[4]], m[s[5]]);
+    mix(3, 7, 11, 15, m[s[6]], m[s[7]]);
+    mix(0, 5, 10, 15, m[s[8]], m[s[9]]);
+    mix(1, 6, 11, 12, m[s[10]], m[s[11]]);
+    mix(2, 7, 8, 13, m[s[12]], m[s[13]]);
+    mix(3, 4, 9, 14, m[s[14]], m[s[15]]);
+  }
+  for (let i = 0; i < 8; i++) h[i] ^= v[i] ^ v[i + 8];
+}
+
+// Keyless BLAKE2b with a 1..64 byte digest. That is all Argon2 asks for.
+function blake2b(input, outLen) {
+  const h = B2B_IV.slice();
+  h[0] ^= 0x01010000n ^ BigInt(outLen);
+
+  const buf = new Uint8Array(128);
+  const view = new DataView(buf.buffer);
+  const words = new Array(16);
+  const loadWords = () => {
+    for (let i = 0; i < 16; i++) words[i] = view.getBigUint64(i * 8, true);
+  };
+
+  let counter = 0n;
+  let at = 0;
+  while (input.length - at > 128) {
+    buf.set(input.subarray(at, at + 128));
+    at += 128;
+    counter += 128n;
+    loadWords();
+    b2bCompress(h, words, counter, false);
+  }
+  buf.fill(0);
+  buf.set(input.subarray(at));
+  counter += BigInt(input.length - at);
+  loadWords();
+  b2bCompress(h, words, counter, true);
+
+  const full = new Uint8Array(64);
+  const fullView = new DataView(full.buffer);
+  for (let i = 0; i < 8; i++) fullView.setBigUint64(i * 8, h[i], true);
+  return full.subarray(0, outLen);
+}
+
+// H' from RFC 9106 section 3.3: plain BLAKE2b up to 64 bytes, and beyond that a
+// chain of 64-byte hashes each contributing its first 32 bytes.
+function hPrime(input, outLen) {
+  const prefixed = cat(le32(outLen), input);
+  if (outLen <= 64) return blake2b(prefixed, outLen);
+
+  const out = new Uint8Array(outLen);
+  let v = blake2b(prefixed, 64);
+  out.set(v.subarray(0, 32), 0);
+  let written = 32;
+  while (outLen - written > 64) {
+    v = blake2b(v, 64);
+    out.set(v.subarray(0, 32), written);
+    written += 32;
+  }
+  out.set(blake2b(v, outLen - written), written);
+  return out;
+}
+
+// ---------------------------------------------------------------- argon2 ---
+// A 1024-byte Argon2 block is held as 256 uint32s: word i of the block is the
+// pair (lo = a[2i], hi = a[2i+1]). BigInt here would cost a factor of a hundred.
+
+// floor(a * b / 2^32) for two uint32s, exactly. A plain a*b loses precision
+// above 2^53, so the operands are split into 16-bit halves.
+function mulHi32(a, b) {
+  const a0 = a & 0xffff, a1 = a >>> 16;
+  const b0 = b & 0xffff, b1 = b >>> 16;
+  const mid = a1 * b0 + a0 * b1;
+  const lo = a0 * b0 + (mid % 0x10000) * 0x10000;
+  return a1 * b1 + Math.floor(mid / 0x10000) + Math.floor(lo / 0x100000000);
+}
+
+// The mixing steps work on a scratch copy of 16 words.
+const V = new Uint32Array(32);
+
+// fBlaMka: v[a] = v[a] + v[b] + 2 * lo(v[a]) * lo(v[b]), modulo 2^64.
+function blaMka(a, b) {
+  const al = V[2 * a], ah = V[2 * a + 1];
+  const bl = V[2 * b], bh = V[2 * b + 1];
+
+  const x0 = al & 0xffff, x1 = al >>> 16;
+  const y0 = bl & 0xffff, y1 = bl >>> 16;
+  const mid = x1 * y0 + x0 * y1;
+  let mLo = x0 * y0 + (mid % 0x10000) * 0x10000;
+  const mHi = x1 * y1 + Math.floor(mid / 0x10000) + Math.floor(mLo / 0x100000000);
+  mLo = mLo >>> 0;
+  const tHi = ((mHi << 1) | (mLo >>> 31)) >>> 0;
+  const tLo = (mLo << 1) >>> 0;
+
+  let lo = al + bl;
+  let hi = ah + bh + Math.floor(lo / 0x100000000);
+  lo = (lo >>> 0) + tLo;
+  hi = hi + tHi + Math.floor(lo / 0x100000000);
+
+  V[2 * a] = lo >>> 0;
+  V[2 * a + 1] = hi >>> 0;
+}
+
+// v[d] = rotr64(v[d] ^ v[a], n), for the four rotations Argon2 uses.
+function xorRotr(d, a, n) {
+  const lo = V[2 * d] ^ V[2 * a];
+  const hi = V[2 * d + 1] ^ V[2 * a + 1];
+  if (n === 32) {
+    V[2 * d] = hi >>> 0;
+    V[2 * d + 1] = lo >>> 0;
+  } else if (n < 32) {
+    V[2 * d] = ((lo >>> n) | (hi << (32 - n))) >>> 0;
+    V[2 * d + 1] = ((hi >>> n) | (lo << (32 - n))) >>> 0;
+  } else {
+    const m = n - 32;
+    V[2 * d] = ((hi >>> m) | (lo << (32 - m))) >>> 0;
+    V[2 * d + 1] = ((lo >>> m) | (hi << (32 - m))) >>> 0;
+  }
+}
+
+function quarter(a, b, c, d) {
+  blaMka(a, b); xorRotr(d, a, 32);
+  blaMka(c, d); xorRotr(b, c, 24);
+  blaMka(a, b); xorRotr(d, a, 16);
+  blaMka(c, d); xorRotr(b, c, 63);
+}
+
+function permute() {
+  quarter(0, 4, 8, 12); quarter(1, 5, 9, 13); quarter(2, 6, 10, 14); quarter(3, 7, 11, 15);
+  quarter(0, 5, 10, 15); quarter(1, 6, 11, 12); quarter(2, 7, 8, 13); quarter(3, 4, 9, 14);
+}
+
+// The permutation runs over the 8 rows of a block and then over its 8 columns.
+// Precomputing which 16 words each of those 16 groups touches keeps fillBlock
+// free of index arithmetic.
+const GROUPS = (() => {
+  const g = new Uint16Array(16 * 16);
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 16; j++) {
+      g[i * 16 + j] = 16 * i + j;
+      g[(8 + i) * 16 + j] = 2 * i + (j % 2) + 16 * (j >> 1);
+    }
+  }
+  return g;
+})();
+
+const BLOCK_R = new Uint32Array(256);
+const BLOCK_TMP = new Uint32Array(256);
+
+// Argon2's compression G: dst = tmp ^ P(prev ^ ref). From version 0x13 onwards
+// the block being overwritten is folded into tmp on every pass after the first.
+function fillBlock(prevArr, prevOff, refArr, refOff, dstArr, dstOff, withXor) {
+  for (let i = 0; i < 256; i++) BLOCK_R[i] = prevArr[prevOff + i] ^ refArr[refOff + i];
+  if (withXor) {
+    for (let i = 0; i < 256; i++) BLOCK_TMP[i] = BLOCK_R[i] ^ dstArr[dstOff + i];
+  } else {
+    BLOCK_TMP.set(BLOCK_R);
+  }
+
+  for (let g = 0; g < 16; g++) {
+    const base = g * 16;
+    for (let j = 0; j < 16; j++) {
+      const w = GROUPS[base + j] * 2;
+      V[2 * j] = BLOCK_R[w];
+      V[2 * j + 1] = BLOCK_R[w + 1];
+    }
+    permute();
+    for (let j = 0; j < 16; j++) {
+      const w = GROUPS[base + j] * 2;
+      BLOCK_R[w] = V[2 * j];
+      BLOCK_R[w + 1] = V[2 * j + 1];
+    }
+  }
+
+  for (let i = 0; i < 256; i++) dstArr[dstOff + i] = BLOCK_TMP[i] ^ BLOCK_R[i];
+}
+
+const ARGON2ID = 2;
+const ADDRESSES_PER_BLOCK = 128;
+
+// Which earlier block the block at `index` is allowed to reference.
+// RFC 9106 section 3.4.1.
+function refIndex(pass, slice, index, sameLane, segLen, laneLen, j1) {
+  let area;
+  if (pass === 0) {
+    if (slice === 0) area = index - 1;
+    else if (sameLane) area = slice * segLen + index - 1;
+    else area = slice * segLen + (index === 0 ? -1 : 0);
+  } else if (sameLane) {
+    area = laneLen - segLen + index - 1;
+  } else {
+    area = laneLen - segLen + (index === 0 ? -1 : 0);
+  }
+
+  const rel = area - 1 - mulHi32(area, mulHi32(j1, j1));
+  const start = pass === 0 ? 0 : (slice === 3 ? 0 : (slice + 1) * segLen);
+  return (start + rel) % laneLen;
+}
+
+// `memory` counts 1 KiB blocks, which is what Argon2 calls m_cost. Bitwarden
+// states it in MiB, so the caller multiplies. `secret` and `ad` are here so the
+// RFC 9106 test vector, which sets both, can be run against this code;
+// Bitwarden uses neither.
+async function argon2id(password, salt, {
+  iterations, memory, parallelism, outLen = 32,
+  secret = new Uint8Array(0), ad = new Uint8Array(0), onProgress = null,
+} = {}) {
+  const h0 = blake2b(cat(
+    le32(parallelism), le32(outLen), le32(memory), le32(iterations),
+    le32(0x13), le32(ARGON2ID),
+    le32(password.length), password,
+    le32(salt.length), salt,
+    le32(secret.length), secret,
+    le32(ad.length), ad,
+  ), 64);
+
+  // Rounded down so all 4 slices of all lanes come out the same size.
+  const blocks = 4 * parallelism * Math.floor(memory / (4 * parallelism));
+  const laneLen = blocks / parallelism;
+  const segLen = laneLen / 4;
+
+  const mem = new Uint32Array(blocks * 256);
+  const setBlock = (block, bytes) => {
+    const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    for (let i = 0; i < 256; i++) mem[block * 256 + i] = v.getUint32(i * 4, true);
+  };
+  for (let lane = 0; lane < parallelism; lane++) {
+    setBlock(lane * laneLen, hPrime(cat(h0, le32(0), le32(lane)), 1024));
+    setBlock(lane * laneLen + 1, hPrime(cat(h0, le32(1), le32(lane)), 1024));
+  }
+
+  // Argon2id derives its addresses from a counter for the first half of the
+  // first pass and from the data itself afterwards.
+  const zero = new Uint32Array(256);
+  const inputBlock = new Uint32Array(256);
+  const addressBlock = new Uint32Array(256);
+  const nextAddresses = () => {
+    inputBlock[12] = (inputBlock[12] + 1) >>> 0;   // word 6, the address counter
+    fillBlock(zero, 0, inputBlock, 0, addressBlock, 0, false);
+    fillBlock(zero, 0, addressBlock, 0, addressBlock, 0, false);
+  };
+
+  const totalSegments = iterations * 4;
+  for (let pass = 0; pass < iterations; pass++) {
+    for (let slice = 0; slice < 4; slice++) {
+      for (let lane = 0; lane < parallelism; lane++) {
+        const dataIndependent = pass === 0 && slice < 2;
+        if (dataIndependent) {
+          inputBlock.fill(0);
+          inputBlock[0] = pass;
+          inputBlock[2] = lane;
+          inputBlock[4] = slice;
+          inputBlock[6] = blocks;
+          inputBlock[8] = iterations;
+          inputBlock[10] = ARGON2ID;
+        }
+
+        let index = 0;
+        if (pass === 0 && slice === 0) {
+          index = 2;                                 // the first two blocks exist already
+          if (dataIndependent) nextAddresses();
+        }
+
+        let cur = lane * laneLen + slice * segLen + index;
+        for (; index < segLen; index++, cur++) {
+          const prev = cur % laneLen === 0 ? cur + laneLen - 1 : cur - 1;
+
+          let j1, j2;
+          if (dataIndependent) {
+            if (index % ADDRESSES_PER_BLOCK === 0) nextAddresses();
+            const w = (index % ADDRESSES_PER_BLOCK) * 2;
+            j1 = addressBlock[w];
+            j2 = addressBlock[w + 1];
+          } else {
+            j1 = mem[prev * 256];
+            j2 = mem[prev * 256 + 1];
+          }
+
+          const refLane = pass === 0 && slice === 0 ? lane : j2 % parallelism;
+          const ref = refLane * laneLen
+            + refIndex(pass, slice, index, refLane === lane, segLen, laneLen, j1);
+
+          fillBlock(mem, prev * 256, mem, ref * 256, mem, cur * 256, pass !== 0);
+        }
+      }
+      if (onProgress) {
+        onProgress((pass * 4 + slice + 1) / totalSegments);
+        // Hand the thread back so the progress actually paints.
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+  }
+
+  const final = new Uint8Array(1024);
+  const fv = new DataView(final.buffer);
+  for (let i = 0; i < 256; i++) {
+    let w = 0;
+    for (let lane = 0; lane < parallelism; lane++) w ^= mem[(lane * laneLen + laneLen - 1) * 256 + i];
+    fv.setUint32(i * 4, w >>> 0, true);
+  }
+  return hPrime(final, outLen);
+}
+
+// ------------------------------------------------------------------ vault ---
+
+async function deriveKeys(password, data, onProgress = null) {
+  if (!data.salt || !data.kdfIterations) {
+    throw new Error("Export has no salt or kdfIterations. " +
+                    "Not a password-protected export?");
+  }
+  const kdfType = data.kdfType ?? 0;
+  let masterKey;
+
+  if (kdfType === 0) {
+    const base = await crypto.subtle.importKey(
+      "raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+    // The base64 salt goes in as a STRING, not as decoded bytes.
+    const bits = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt: enc.encode(data.salt),
+        iterations: data.kdfIterations, hash: "SHA-256" }, base, 256);
+    masterKey = new Uint8Array(bits);
+  } else if (kdfType === 1) {
+    if (!data.kdfMemory || !data.kdfParallelism) {
+      throw new Error("Argon2id export without kdfMemory or kdfParallelism.");
+    }
+    // Unlike the PBKDF2 path, Bitwarden hashes the salt string first, and it
+    // states memory in MiB where Argon2 counts 1 KiB blocks.
+    const salt = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", enc.encode(data.salt)));
+    masterKey = await argon2id(enc.encode(password), salt, {
+      iterations: data.kdfIterations,
+      memory: data.kdfMemory * 1024,
+      parallelism: data.kdfParallelism,
+      onProgress,
+    });
+  } else {
+    throw new Error(`This export uses KDF type ${kdfType}, which this page ` +
+                    "does not know. It handles PBKDF2 (0) and Argon2id (1).");
+  }
+
+  return {
+    encKey: await crypto.subtle.importKey(
+      "raw", await hkdfExpand(masterKey, "enc"), { name: "AES-CBC" }, false, ["decrypt"]),
+    macKey: await crypto.subtle.importKey(
+      "raw", await hkdfExpand(masterKey, "mac"), { name: "HMAC", hash: "SHA-256" },
+      false, ["verify"]),
+  };
+}
+
+async function decrypt(encString, keys) {
+  const [type, payload] = encString.split(".", 2);
+  if (type !== "2") throw new Error(`Unsupported EncString type ${type}`);
+  const [iv, ct, mac] = payload.split("|").map(b64);
+
+  // Verify before decrypting: a wrong password otherwise yields plausible-looking
+  // garbage instead of a clear error.
+  if (!await crypto.subtle.verify("HMAC", keys.macKey, mac, cat(iv, ct))) {
+    throw new Error("MAC mismatch");
+  }
+  return dec.decode(await crypto.subtle.decrypt({ name: "AES-CBC", iv }, keys.encKey, ct));
+}
+
+// ------------------------------------------------------------------ totp ---
+// Needed as much as the passwords: an account with two-factor auth is
+// unreachable without the code, and the authenticator app died with the phone.
+
+function base32(secret) {
+  const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const clean = secret.toUpperCase().replace(/[\s=-]/g, "");
+  let bits = "";
+  for (const c of clean) {
+    const v = A.indexOf(c);
+    if (v < 0) throw new Error("not valid base32");
+    bits += v.toString(2).padStart(5, "0");
+  }
+  const out = new Uint8Array(Math.floor(bits.length / 8));
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(bits.substr(i * 8, 8), 2);
+  return out;
+}
+
+async function totp(secret, period = 30, digits = 6) {
+  // Vaultwarden also stores otpauth:// URIs, not just bare secrets.
+  if (secret.startsWith("otpauth://")) {
+    const p = new URL(secret).searchParams;
+    secret = p.get("secret") || secret;
+    period = Number(p.get("period")) || period;
+    digits = Number(p.get("digits")) || digits;
+  }
+  const counter = Math.floor(Date.now() / 1000 / period);
+  const buf = new Uint8Array(8);
+  new DataView(buf.buffer).setBigUint64(0, BigInt(counter));
+  const key = await crypto.subtle.importKey(
+    "raw", base32(secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const h = new Uint8Array(await crypto.subtle.sign("HMAC", key, buf));
+  const off = h[h.length - 1] & 0x0f;
+  const num = ((h[off] & 0x7f) << 24 | h[off + 1] << 16 | h[off + 2] << 8 | h[off + 3]);
+  return {
+    code: String(num % 10 ** digits).padStart(digits, "0"),
+    left: period - Math.floor(Date.now() / 1000) % period,
+    period,
+  };
+}
+
+// CRYPTO-END
+// -------------------------------------------------------------------- ui ---
+
+const $ = (id) => document.getElementById(id);
+let fileText = null, fileName = "", entries = [], folders = {};
+
+function say(text, kind = "") {
+  $("msg").textContent = text;
+  $("msg").className = "msg " + kind;
+}
+
+function ready() {
+  const on = fileText !== null;
+  $("pw").disabled = !on;
+  $("go").disabled = !on;
+  if (on) $("pw").focus();
+}
+
+async function takeFile(f) {
+  if (!f) return;
+  try {
+    fileText = await f.text();
+    fileName = f.name;
+    // textContent, not innerHTML: the file name is attacker-controlled if the
+    // archive came from someone else, and script-src 'unsafe-inline' would run it.
+    $("drop").textContent = "";
+    const name = document.createElement("strong");
+    name.textContent = f.name;
+    $("drop").append(name, `${(f.size / 1024).toFixed(0)} kB loaded`);
+    say("");
+    ready();
+  } catch (e) {
+    say("Could not read the file: " + e.message, "err");
+  }
+}
+
+$("drop").addEventListener("click", () => $("file").click());
+$("drop").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); }
+});
+$("file").addEventListener("change", (e) => takeFile(e.target.files[0]));
+for (const type of ["dragenter", "dragover"]) {
+  $("drop").addEventListener(type, (e) => { e.preventDefault(); $("drop").classList.add("over"); });
+}
+for (const type of ["dragleave", "drop"]) {
+  $("drop").addEventListener(type, (e) => { e.preventDefault(); $("drop").classList.remove("over"); });
+}
+$("drop").addEventListener("drop", (e) => takeFile(e.dataTransfer.files[0]));
+$("pw").addEventListener("keydown", (e) => { if (e.key === "Enter") $("go").click(); });
+
+$("go").addEventListener("click", async () => {
+  const password = $("pw").value;
+  if (!password) return say("Master password is missing.", "err");
+
+  $("go").disabled = true;
+  say("Deriving the key, this takes a moment…");
+  // Yield once so the message paints before PBKDF2 blocks the thread.
+  await new Promise((r) => setTimeout(r, 30));
+
+  let data;
+  try {
+    data = JSON.parse(fileText);
+  } catch {
+    $("go").disabled = false;
+    return say("That is not valid JSON.", "err");
+  }
+  if (!data.encrypted || !data.passwordProtected) {
+    $("go").disabled = false;
+    return say("Not a password-protected export. This page can only open " +
+               "encrypted_json with passwordProtected set.", "err");
+  }
+
+  try {
+    // Argon2id reports progress because it runs for seconds in plain
+    // JavaScript; PBKDF2 runs inside WebCrypto and cannot report anything.
+    const keys = await deriveKeys(password, data, (done) => {
+      say(`Deriving the key, this takes a moment… ${Math.round(done * 100)}%`);
+    });
+    await decrypt(data.encKeyValidation_DO_NOT_EDIT, keys);   // wrong password stops here
+    const vault = JSON.parse(await decrypt(data.data, keys));
+
+    folders = Object.fromEntries((vault.folders || []).map((f) => [f.id, f.name]));
+    entries = (vault.items || []).map((it) => ({
+      it,
+      hay: [it.name, it.login?.username, folders[it.folderId],
+            it.sshKey?.keyFingerprint, it.identity?.email,
+            ...(it.login?.uris || []).map((u) => u.uri)].filter(Boolean).join(" ").toLowerCase(),
+    }));
+
+    $("pw").value = "";
+    fileText = null;
+    // The instructions have done their job; from here the header should say
+    // which file is open, not repeat how to open one.
+    $("title").textContent = fileName;
+    $("sub").textContent =
+      `${(vault.items || []).length} entries, decrypted in this window only`;
+    $("unlock").classList.add("hidden");
+    $("result").classList.remove("hidden");
+    render("");
+    $("q").focus();
+  } catch (e) {
+    $("go").disabled = false;
+    const wrong = e.message.includes("MAC") || e.name === "OperationError";
+    say(wrong ? "Wrong master password." : "Error: " + e.message, "err");
+  }
+});
+
+// Inline, because the CSP forbids external resources and an emergency page must
+// not depend on an icon font that may not load.
+const EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+  'stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7' +
+  '-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+  'stroke-linecap="round" stroke-linejoin="round"><path d="M10.6 6.2A9.9 9.9 0 0 1 12 5' +
+  'c6.5 0 10 7 10 7a17 17 0 0 1-2.7 3.6M6.6 6.7A17 17 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 ' +
+  '5.1-1.4"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M3 3l18 18"/></svg>';
+
+// navigator.clipboard needs a secure context and file:// is not one in Chrome or
+// Firefox, which is exactly how this page gets opened in an emergency. The
+// execCommand path is deprecated but works there, so it is the fallback rather
+// than the other way round.
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch { /* fall through */ }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.cssText = "position:fixed;opacity:0";
+  document.body.append(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { ok = false; }
+  ta.remove();
+  return ok;
+}
+
+function fieldRow(label, value, secret = false) {
+  const dl = document.createElement("dl");
+  dl.className = "f";
+  const dt = document.createElement("dt");
+  dt.textContent = label;
+  const dd = document.createElement("dd");
+
+  const span = document.createElement("span");
+  span.className = "val" + (secret ? " secret" : "");
+  span.textContent = secret ? "••••••••••" : value;
+  span.title = "Click to copy";
+  span.addEventListener("click", async () => {
+    const ok = await copyText(value);
+    const note = document.createElement("span");
+    note.className = "copied";
+    note.textContent = ok ? "copied" : "copy failed, reveal it and copy by hand";
+    dd.querySelector(".copied")?.remove();
+    dd.append(note);
+    setTimeout(() => note.remove(), 1600);
+  });
+  dd.append(span);
+
+  if (secret) {
+    const eye = document.createElement("button");
+    eye.className = "icon";
+    eye.innerHTML = EYE;
+    eye.title = "Reveal";
+    eye.setAttribute("aria-label", "Reveal");
+    eye.addEventListener("click", () => {
+      const hidden = span.classList.toggle("secret");
+      span.textContent = hidden ? "••••••••••" : value;
+      // A revealed SSH private key is 20 lines that must keep their breaks,
+      // or it is worthless when copied out by hand.
+      span.classList.toggle("note", !hidden && value.includes("\n"));
+      eye.innerHTML = hidden ? EYE : EYE_OFF;
+      eye.title = eye.ariaLabel = hidden ? "Reveal" : "Hide";
+    });
+    dd.append(eye);
+  }
+  dl.append(dt, dd);
+  return dl;
+}
+
+function totpRow(secret) {
+  const dl = document.createElement("dl");
+  dl.className = "f";
+  const dt = document.createElement("dt");
+  dt.textContent = "2FA code";
+  const dd = document.createElement("dd");
+  dd.className = "totp";
+  dl.append(dt, dd);
+
+  const tick = async () => {
+    // Started via setTimeout below, so by the first run the row is in the DOM.
+    // Once the entry collapses the node is dropped and the timer stops here.
+    if (!dd.isConnected) return;
+    try {
+      const { code, left } = await totp(secret);
+      dd.textContent = "";
+      const c = document.createElement("span");
+      c.className = "val";
+      c.textContent = code;
+      c.title = "Click to copy";
+      c.addEventListener("click", () => copyText(code));
+      const s = document.createElement("span");
+      s.className = "left";
+      s.textContent = `${left}s left`;
+      dd.append(c, s);
+    } catch (e) {
+      dd.textContent = "Cannot compute code (" + e.message + ")";
+      return;
+    }
+    setTimeout(tick, 1000);
+  };
+  // Not tick() directly: the row is appended by the caller AFTER this returns,
+  // so a synchronous first run would see an unconnected node and stop for good.
+  setTimeout(tick, 0);
+  return dl;
+}
+
+function render(query) {
+  const list = $("list");
+  list.textContent = "";
+  const q = query.trim().toLowerCase();
+  const hits = q ? entries.filter((e) => e.hay.includes(q)) : entries;
+
+  $("count").textContent = q
+    ? `${hits.length} of ${entries.length} entries`
+    : `${entries.length} entries`;
+
+  for (const { it } of hits.slice(0, 300)) {
+    const d = document.createElement("details");
+    d.className = "entry";
+    const s = document.createElement("summary");
+    s.append(document.createTextNode(it.name || "(unnamed)"));
+    if (it.login?.username) {
+      const w = document.createElement("span");
+      w.className = "who";
+      w.textContent = it.login.username;
+      s.append(w);
+    }
+    d.append(s);
+
+    const body = document.createElement("div");
+    body.className = "body";
+    d.addEventListener("toggle", () => {
+      if (!d.open) { body.textContent = ""; return; }
+      if (folders[it.folderId]) body.append(fieldRow("Folder", folders[it.folderId]));
+      if (it.login?.username) body.append(fieldRow("Username", it.login.username));
+      if (it.login?.password) body.append(fieldRow("Password", it.login.password, true));
+      if (it.login?.totp) body.append(totpRow(it.login.totp));
+      for (const u of it.login?.uris || []) if (u.uri) body.append(fieldRow("Address", u.uri));
+      for (const f of it.fields || []) {
+        if (f.value) body.append(fieldRow(f.name || "Field", f.value, f.type === 1));
+      }
+      if (it.card?.number) {
+        body.append(fieldRow("Card", it.card.number, true));
+        body.append(fieldRow("Expires", `${it.card.expMonth}/${it.card.expYear}`));
+        if (it.card.code) body.append(fieldRow("CVV", it.card.code, true));
+      }
+      // Bitwarden's SSH key type (5). Without this the entry rendered empty,
+      // which in a recovery is the difference between reaching a server and not.
+      if (it.sshKey) {
+        if (it.sshKey.privateKey) body.append(fieldRow("Private key", it.sshKey.privateKey, true));
+        if (it.sshKey.publicKey) body.append(fieldRow("Public key", it.sshKey.publicKey));
+        if (it.sshKey.keyFingerprint) body.append(fieldRow("Fingerprint", it.sshKey.keyFingerprint));
+      }
+      // Identity type (4): addresses and numbers, no secrets of its own.
+      if (it.identity) {
+        const id = it.identity;
+        const name = [id.firstName, id.middleName, id.lastName].filter(Boolean).join(" ");
+        if (name) body.append(fieldRow("Name", name));
+        for (const [label, v] of [
+          ["Email", id.email], ["Phone", id.phone], ["Company", id.company],
+          ["Address", [id.address1, id.address2, id.address3].filter(Boolean).join(", ")],
+          ["City", [id.postalCode, id.city].filter(Boolean).join(" ")],
+          ["Country", id.country], ["Username", id.username],
+        ]) if (v) body.append(fieldRow(label, v));
+        for (const [label, v] of [["Passport", id.passportNumber],
+                                  ["Licence", id.licenseNumber], ["SSN", id.ssn]])
+          if (v) body.append(fieldRow(label, v, true));
+      }
+      if (it.notes) {
+        const dl = fieldRow("Notes", it.notes);
+        dl.querySelector("dd").className = "note";
+        body.append(dl);
+      }
+    });
+    d.append(body);
+    list.append(d);
+  }
+
+  if (hits.length > 300) {
+    const p = document.createElement("p");
+    p.id = "count";
+    p.textContent = "Showing the first 300. Narrow the search to see the rest.";
+    list.append(p);
+  }
+}
+
+let timer;
+$("q").addEventListener("input", (e) => {
+  clearTimeout(timer);
+  const v = e.target.value;
+  timer = setTimeout(() => render(v), 120);
+});
+</script>
+</body>
+</html>
