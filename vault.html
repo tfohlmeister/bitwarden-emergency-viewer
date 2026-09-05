@@ -71,7 +71,7 @@
   .msg.err { color: var(--warn); }
   .msg.ok { color: var(--ok); }
 
-  #count { color: var(--muted); font-size: 13px; margin: 18px 0 10px; }
+  .count { color: var(--muted); font-size: 13px; margin: 18px 0 10px; }
 
   .entry { border-top: 1px solid var(--line); }
   .entry:first-child { border-top: none; }
@@ -126,7 +126,7 @@
   <section id="result" class="hidden">
     <label for="q">Search</label>
     <input type="search" id="q" placeholder="Name, username, folder, address" autocomplete="off">
-    <p id="count"></p>
+    <p id="count" class="count"></p>
     <div id="list"></div>
   </section>
 
@@ -452,6 +452,15 @@ async function argon2id(password, salt, {
   iterations, memory, parallelism, outLen = 32,
   secret = new Uint8Array(0), ad = new Uint8Array(0), onProgress = null,
 } = {}) {
+  // RFC 9106 requires m >= 8p, and the rounding below silently produces zero
+  // blocks below that: the memory would never be written and the tag would come
+  // out of an all-zero block. Refusing loudly beats returning a plausible
+  // 32-byte value that is not an Argon2id hash.
+  if (!(memory >= 8 * parallelism)) {
+    throw new Error(`Argon2id needs at least ${8 * parallelism} KiB for `
+      + `${parallelism} lanes, got ${memory}.`);
+  }
+
   const h0 = blake2b(cat(
     le32(parallelism), le32(outLen), le32(memory), le32(iterations),
     le32(0x13), le32(ARGON2ID),
@@ -726,8 +735,34 @@ $("go").addEventListener("click", async () => {
     const keys = await deriveKeys(password, data, (done) => {
       say(`Deriving the key, this takes a moment… ${Math.round(done * 100)}%`);
     });
-    await decrypt(data.encKeyValidation_DO_NOT_EDIT, keys);   // wrong password stops here
-    const vault = JSON.parse(await decrypt(data.data, keys));
+    if (!data.encKeyValidation_DO_NOT_EDIT) {
+      $("go").disabled = false;
+      return say("This export has no encKeyValidation block. The file is " +
+                 "incomplete or was edited.", "err");
+    }
+
+    // Two failures that look alike and are not. The validation block is the
+    // password check; once it opens, the password is proven right, and a
+    // failure on the vault data means the file is damaged. Reporting that as a
+    // wrong password would send someone retyping forever instead of reaching
+    // for another copy of the backup.
+    try {
+      await decrypt(data.encKeyValidation_DO_NOT_EDIT, keys);
+    } catch (e) {
+      $("go").disabled = false;
+      const wrong = e.message.includes("MAC") || e.name === "OperationError";
+      return say(wrong ? "Wrong master password." : "Error: " + e.message, "err");
+    }
+
+    let vault;
+    try {
+      vault = JSON.parse(await decrypt(data.data, keys));
+    } catch (e) {
+      $("go").disabled = false;
+      return say("The master password is correct, but the vault data could not " +
+                 "be read: " + e.message + ". This copy of the export is " +
+                 "damaged; try another one.", "err");
+    }
 
     folders = Object.fromEntries((vault.folders || []).map((f) => [f.id, f.name]));
     entries = (vault.items || []).map((it) => ({
@@ -749,9 +784,10 @@ $("go").addEventListener("click", async () => {
     render("");
     $("q").focus();
   } catch (e) {
+    // Everything a wrong password could cause is handled above, so whatever
+    // lands here is about the file or the key derivation parameters.
     $("go").disabled = false;
-    const wrong = e.message.includes("MAC") || e.name === "OperationError";
-    say(wrong ? "Wrong master password." : "Error: " + e.message, "err");
+    say("Error: " + e.message, "err");
   }
 });
 
@@ -900,9 +936,15 @@ function render(query) {
       for (const f of it.fields || []) {
         if (f.value) body.append(fieldRow(f.name || "Field", f.value, f.type === 1));
       }
-      if (it.card?.number) {
-        body.append(fieldRow("Card", it.card.number, true));
-        body.append(fieldRow("Expires", `${it.card.expMonth}/${it.card.expYear}`));
+      // Every card field is optional: Bitwarden leaves out what was never
+      // filled in, so each one is checked rather than assumed.
+      if (it.card) {
+        if (it.card.cardholderName) body.append(fieldRow("Name", it.card.cardholderName));
+        if (it.card.number) body.append(fieldRow("Card", it.card.number, true));
+        if (it.card.expMonth || it.card.expYear) {
+          body.append(fieldRow("Expires",
+            [it.card.expMonth, it.card.expYear].filter(Boolean).join("/")));
+        }
         if (it.card.code) body.append(fieldRow("CVV", it.card.code, true));
       }
       // Bitwarden's SSH key type (5). Without this the entry rendered empty,
@@ -939,7 +981,7 @@ function render(query) {
 
   if (hits.length > 300) {
     const p = document.createElement("p");
-    p.id = "count";
+    p.className = "count";
     p.textContent = "Showing the first 300. Narrow the search to see the rest.";
     list.append(p);
   }

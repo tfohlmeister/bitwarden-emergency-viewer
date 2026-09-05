@@ -17,13 +17,13 @@ async function unlock(page, exportFile, password) {
 
 test("opens a PBKDF2 export and lists every entry", async ({ page }) => {
   await unlock(page, path("fixtures/pbkdf2.json"), FIXTURE_PASSWORD);
-  await expect(page.locator("#count")).toHaveText("5 entries");
-  await expect(page.locator(".entry")).toHaveCount(5);
+  await expect(page.locator("#count")).toHaveText("6 entries");
+  await expect(page.locator(".entry")).toHaveCount(6);
 });
 
 test("opens an Argon2id export", async ({ page }) => {
   await unlock(page, path("fixtures/argon2id.json"), FIXTURE_PASSWORD);
-  await expect(page.locator("#count")).toHaveText("5 entries");
+  await expect(page.locator("#count")).toHaveText("6 entries");
 });
 
 test("opens an Argon2id export at Bitwarden's own defaults", async ({ page }, testInfo) => {
@@ -34,7 +34,7 @@ test("opens an Argon2id export at Bitwarden's own defaults", async ({ page }, te
   await unlock(page, path("../site/demo-vault.json"), DEMO_PASSWORD);
   const seconds = (Date.now() - started) / 1000;
   testInfo.annotations.push({ type: "unlock", description: `${seconds.toFixed(1)}s` });
-  await expect(page.locator("#count")).toHaveText("5 entries");
+  await expect(page.locator("#count")).toHaveText("6 entries");
   expect(seconds).toBeLessThan(120);
 });
 
@@ -68,12 +68,12 @@ test("refuses a file that is not a password-protected export", async ({ page }) 
 test("search narrows the list", async ({ page }) => {
   await unlock(page, path("fixtures/pbkdf2.json"), FIXTURE_PASSWORD);
   await page.locator("#q").fill("router");
-  await expect(page.locator("#count")).toHaveText("1 of 5 entries");
+  await expect(page.locator("#count")).toHaveText("1 of 6 entries");
   await expect(page.locator(".entry")).toHaveCount(1);
 
   // Searchable by username and by folder, not just by name.
   await page.locator("#q").fill("infrastructure");
-  await expect(page.locator("#count")).toHaveText("2 of 5 entries");
+  await expect(page.locator("#count")).toHaveText("2 of 6 entries");
 });
 
 test("hides passwords until they are revealed", async ({ page }) => {
@@ -107,6 +107,38 @@ test("renders an SSH private key with its line breaks intact", async ({ page }) 
   const value = row.locator("dd .val");
   await expect(value).toHaveClass(/note/);
   await expect(value).toContainText("BEGIN OPENSSH PRIVATE KEY");
+});
+
+test("renders a card that has nothing but a number", async ({ page }) => {
+  await unlock(page, path("fixtures/pbkdf2.json"), FIXTURE_PASSWORD);
+  const entry = page.locator(".entry", { hasText: "Example Card Without Expiry" });
+  await entry.locator("summary").click();
+
+  await expect(entry.locator("dl.f", { hasText: "Card" })).toBeVisible();
+  await expect(entry.locator("dl.f", { hasText: "Expires" })).toHaveCount(0);
+  await expect(entry.locator(".body")).not.toContainText("undefined");
+});
+
+test("tells a damaged export apart from a wrong password", async ({ page }) => {
+  // The validation block opens, so the password is proven right and the failure
+  // is the file. Reporting this as a wrong password would send someone retyping
+  // a password that was correct all along.
+  await page.goto(`file://${VAULT_HTML}`);
+  await page.locator("#file").setInputFiles(path("fixtures/damaged.json"));
+  await page.locator("#pw").fill(FIXTURE_PASSWORD);
+  await page.locator("#go").click();
+  await expect(page.locator("#msg")).toContainText("master password is correct");
+  await expect(page.locator("#msg")).toContainText("damaged");
+  await expect(page.locator("#result")).toBeHidden();
+});
+
+test("names the problem when the validation block is missing", async ({ page }) => {
+  await page.goto(`file://${VAULT_HTML}`);
+  await page.locator("#file").setInputFiles(path("fixtures/no-validation.json"));
+  await page.locator("#pw").fill(FIXTURE_PASSWORD);
+  await page.locator("#go").click();
+  await expect(page.locator("#msg")).toContainText("no encKeyValidation block");
+  await expect(page.locator("#msg")).not.toContainText("undefined");
 });
 
 test("makes no network requests at any point", async ({ page }) => {

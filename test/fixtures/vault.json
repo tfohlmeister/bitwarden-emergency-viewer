@@ -61,6 +61,14 @@
       }
     },
     {
+      "id": "a0000000-0000-4000-8000-000000000006",
+      "type": 3,
+      "name": "Example Card Without Expiry",
+      "card": {
+        "number": "5555555555554444"
+      }
+    },
+    {
       "id": "a0000000-0000-4000-8000-000000000004",
       "type": 4,
       "name": "Example Identity",

@@ -34,7 +34,6 @@ jobs:
           # The viewer is shipped verbatim. A demo that differs from the file
           # people download would be worse than no demo.
           cp vault.html _site/viewer.html
-          diff vault.html _site/viewer.html
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4

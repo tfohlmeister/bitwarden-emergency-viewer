@@ -115,6 +115,15 @@ const VAULT = {
       card: { number: "4111111111111111", expMonth: "11", expYear: "2031", code: "123" },
     },
     {
+      // A card the owner only ever typed the number into. Bitwarden drops the
+      // fields that were left empty rather than storing them as null, so this
+      // is what the common case actually looks like on the way back in.
+      id: "a0000000-0000-4000-8000-000000000006",
+      type: 3,
+      name: "Example Card Without Expiry",
+      card: { number: "5555555555554444" },
+    },
+    {
       id: "a0000000-0000-4000-8000-000000000004",
       type: 4,
       name: "Example Identity",
@@ -154,6 +163,20 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   write("test/fixtures/pbkdf2.json", buildExport(VAULT, FIXTURE_PASSWORD, PBKDF2));
   write("test/fixtures/argon2id.json", buildExport(VAULT, FIXTURE_PASSWORD, ARGON2ID));
   write("site/demo-vault.json", buildExport(VAULT, DEMO_PASSWORD, ARGON2ID_DEFAULTS));
+
+  // Two broken files, because how the page fails matters as much as how it
+  // succeeds. A damaged backup must not be reported as a wrong password.
+  const damaged = buildExport(VAULT, FIXTURE_PASSWORD, PBKDF2);
+  const [prefix, payload] = damaged.data.split(".", 2);
+  const [iv, ct, mac] = payload.split("|");
+  const flipped = Buffer.from(ct, "base64");
+  flipped[0] ^= 0xff;
+  damaged.data = `${prefix}.${iv}|${flipped.toString("base64")}|${mac}`;
+  write("test/fixtures/damaged.json", damaged);
+
+  const noValidation = buildExport(VAULT, FIXTURE_PASSWORD, PBKDF2);
+  delete noValidation.encKeyValidation_DO_NOT_EDIT;
+  write("test/fixtures/no-validation.json", noValidation);
 }
 
 export { VAULT, PBKDF2, ARGON2ID, ARGON2ID_DEFAULTS, FIXTURE_PASSWORD, DEMO_PASSWORD };

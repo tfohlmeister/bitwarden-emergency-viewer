@@ -39,6 +39,14 @@ const KDF = { kdf: 1, kdfIterations: 6, kdfMemory: 32, kdfParallelism: 4 };
 const docker = (...args) =>
   execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 
+// Removing a container that is not there is the normal case on a fresh runner,
+// and older Docker versions report it as an error.
+const removeContainer = () => {
+  try {
+    docker("rm", "-f", CONTAINER);
+  } catch { /* nothing to remove */ }
+};
+
 function makeCertificate(dir) {
   execFileSync("openssl", [
     "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
@@ -156,7 +164,7 @@ const ITEM_NAMES = ITEMS.map((item) => item.name);
 
 async function startServer(dir) {
   const certs = makeCertificate(dir);
-  docker("rm", "-f", CONTAINER);
+  removeContainer();
   docker(
     "run", "-d", "--name", CONTAINER,
     "-e", "SIGNUPS_ALLOWED=true",
@@ -215,7 +223,7 @@ async function main() {
     bw("logout", "--session", session);
     console.log(`wrote ${OUT}`);
   } finally {
-    if (!process.env.VAULTWARDEN_KEEP) docker("rm", "-f", CONTAINER);
+    if (!process.env.VAULTWARDEN_KEEP) removeContainer();
     rmSync(dir, { recursive: true, force: true });
   }
 }

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createHash, randomBytes, randomInt } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { argon2id as nobleArgon2id } from "@noble/hashes/argon2.js";
 
 import { loadCrypto } from "../tools/crypto.mjs";
@@ -47,19 +47,39 @@ test("argon2id reproduces the RFC 9106 test vector", async () => {
     "0d640df58d78766c08c037a34a8b53c9d01ef0452d75b65eb52520e96b01e659");
 });
 
+// Fixed inputs on purpose. A randomised sweep would cover a different corner
+// every run, and the one test that can catch an indexing regression is worthless
+// if the failure cannot be reproduced from the failure message.
+const ARGON2_CASES = [
+  { t: 2, m: 1024, p: 1, pw: 1, salt: 8 },       // the minimum Bitwarden allows
+  { t: 3, m: 1024, p: 4, pw: 24, salt: 16 },     // several lanes over one segment
+  { t: 6, m: 2048, p: 4, pw: 32, salt: 16 },     // Bitwarden's iteration default
+  { t: 2, m: 3072, p: 3, pw: 40, salt: 32 },     // lane count that does not divide m
+  { t: 4, m: 2048, p: 1, pw: 8, salt: 24 },      // single lane, several passes
+  { t: 10, m: 1024, p: 2, pw: 16, salt: 8 },     // the maximum iteration count
+];
+
 test("argon2id agrees with @noble/hashes across the parameter space", async () => {
-  for (let i = 0; i < 6; i++) {
-    const password = new Uint8Array(randomBytes(randomInt(1, 40)));
-    const salt = new Uint8Array(randomBytes(randomInt(8, 32)));
-    const t = randomInt(2, 5);
-    const p = randomInt(1, 5);
-    const m = randomInt(1, 4) * 1024;
+  for (const { t, m, p, pw, salt: saltLen } of ARGON2_CASES) {
+    // Deterministic filler, so the whole case is reconstructible from its label.
+    const password = new Uint8Array(pw).map((_, i) => (i * 7 + t) & 0xff);
+    const salt = new Uint8Array(saltLen).map((_, i) => (i * 13 + m) & 0xff);
     const mine = await crypto2.argon2id(password, salt, {
       iterations: t, memory: m, parallelism: p,
     });
     const theirs = nobleArgon2id(password, salt, { t, m, p, dkLen: 32 });
     assert.equal(hex(mine), hex(theirs), `m=${m} t=${t} p=${p}`);
   }
+});
+
+test("argon2id refuses parameters that would leave the memory unwritten", async () => {
+  // Below 8 blocks per lane the segment arithmetic rounds down to nothing.
+  await assert.rejects(
+    () => crypto2.argon2id(new Uint8Array(8), new Uint8Array(8), {
+      iterations: 3, memory: 16, parallelism: 4,
+    }),
+    /at least 32 KiB for 4 lanes/,
+  );
 });
 
 // ------------------------------------------------------------- decryption ---
@@ -74,7 +94,7 @@ for (const [name, file] of [["PBKDF2", "pbkdf2.json"], ["Argon2id", "argon2id.js
     assert.deepEqual(vault, VAULT);
     // Spot-check the shapes the page renders, so a fixture that decrypts but is
     // structurally empty cannot pass.
-    assert.equal(vault.items.length, 5);
+    assert.equal(vault.items.length, 6);
     assert.ok(vault.items.some((i) => i.login?.totp));
     assert.ok(vault.items.some((i) => i.sshKey?.privateKey));
     assert.ok(vault.items.some((i) => i.card?.number));
