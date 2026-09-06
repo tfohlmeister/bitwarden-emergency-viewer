@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # The workflows pin action majors, and GitHub retires the Node runtime under
+  # them faster than a yearly glance would catch. Without this they rot quietly
+  # into deprecation warnings.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      dev-dependencies:
+        patterns: ["*"]
