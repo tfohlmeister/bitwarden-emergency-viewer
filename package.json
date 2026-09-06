@@ -31,5 +31,8 @@
     "disaster-recovery",
     "offline",
     "password-manager"
-  ]
+  ],
+  "overrides": {
+    "tmp": "^0.2.6"
+  }
 }
