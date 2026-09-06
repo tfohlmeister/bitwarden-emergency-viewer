@@ -137,8 +137,7 @@ BLAKE2b is checked against OpenSSL, and TOTP against the RFC 6238 vectors.
 - Password-protected exports only (`"encrypted": true`,
   `"passwordProtected": true`). An account-key-encrypted export is tied to a
   vault you no longer have, which defeats the purpose.
-- JavaScript is required. The Tor Browser on its strictest setting will not run
-  it; download there and open the file in a normal browser.
+- JavaScript is required.
 - Only the item types Bitwarden currently defines are rendered. Anything else
   shows up in the list but has no fields.
 
