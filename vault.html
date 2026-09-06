@@ -142,10 +142,11 @@
 
 // CRYPTO-BEGIN
 // Everything between the CRYPTO-BEGIN/CRYPTO-END markers is free of DOM access,
-// so it can be lifted out and run under Node. The test suite does that, and so
-// does the weekly job in the infrastructure repo that opens the real backup
-// with the real master password. Keep it that way: a browser-only tool that is
-// never exercised is a tool nobody knows is broken. Do not remove the markers.
+// so it can be lifted out and run under Node. The test suite does that, and a
+// backup pipeline can do the same to prove that the copy it is about to ship
+// still opens the export it is shipped with. Keep it that way: a browser-only
+// tool that is never exercised is a tool nobody knows is broken. Do not remove
+// the markers.
 //
 // Mirrors what Bitwarden does for a password-protected export:
 //   masterKey = PBKDF2-SHA256(password, salt-as-STRING, kdfIterations)   kdfType 0
