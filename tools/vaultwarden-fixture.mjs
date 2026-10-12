@@ -117,8 +117,18 @@ async function register(ca) {
   const userKey = randomBytes(64);          // what actually protects the vault
   const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 
+  // Without SMTP, Vaultwarden hands the email verification token back directly
+  // instead of mailing it, as plain text since the request sends no Accept.
+  const verify = await httpsRequest(`${SERVER}/identity/accounts/register/send-verification-email`, {
+    method: "POST", body: JSON.stringify({ email: EMAIL, name: "Fixture" }), ca,
+  });
+  if (verify.status !== 200) {
+    throw new Error(`send-verification-email failed: HTTP ${verify.status} ${verify.body}`);
+  }
+
   const payload = {
     email: EMAIL,
+    emailVerificationToken: verify.body.trim(),
     name: "Fixture",
     masterPasswordHash: pbkdf2Sync(masterKey, ACCOUNT_PASSWORD, 1, 32, "sha256").toString("base64"),
     masterPasswordHint: null,
@@ -132,7 +142,7 @@ async function register(ca) {
     ...KDF,
   };
 
-  const res = await httpsRequest(`${SERVER}/identity/accounts/register`, {
+  const res = await httpsRequest(`${SERVER}/identity/accounts/register/finish`, {
     method: "POST", body: JSON.stringify(payload), ca,
   });
   // Re-running against a container that still has the account is fine; the
