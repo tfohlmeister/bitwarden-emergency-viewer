@@ -89,6 +89,8 @@
   .f > dd { margin: 0; font-family: var(--mono); font-size: 13.5px; word-break: break-all; }
   .secret { letter-spacing: .12em; }
   .note { white-space: pre-wrap; font-family: inherit; font-size: 14px; }
+  .history { margin-bottom: 7px; }
+  .history > summary { color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 0 7px; }
 
   .totp { font-size: 19px; letter-spacing: .16em; font-family: var(--mono); }
   .totp .left { font-size: 12px; letter-spacing: 0; color: var(--muted); margin-left: 8px; }
@@ -125,7 +127,7 @@
 
   <section id="result" class="hidden">
     <label for="q">Search</label>
-    <input type="search" id="q" placeholder="Name, username, folder, address" autocomplete="off">
+    <input type="search" id="q" placeholder="Name, username, folder, address, notes" autocomplete="off">
     <p id="count" class="count"></p>
     <div id="list"></div>
   </section>
@@ -725,11 +727,28 @@ function base32(secret) {
 }
 
 const TOTP_HASHES = { SHA1: "SHA-1", SHA256: "SHA-256", SHA512: "SHA-512" };
+const STEAM_CHARS = "23456789BCDFGHJKMNPQRTVWXY";
+
+// Least significant character first.
+function steamCode(num, digits) {
+  let code = "";
+  for (let i = 0; i < digits; i++) {
+    code += STEAM_CHARS[num % STEAM_CHARS.length];
+    num = Math.floor(num / STEAM_CHARS.length);
+  }
+  return code;
+}
 
 async function totp(secret, period = 30, digits = 6) {
-  // Vaultwarden also stores otpauth:// URIs, not just bare secrets.
   let hash = "SHA-1";
-  if (secret.startsWith("otpauth://")) {
+  // Steam Guard: a base32 secret behind steam://, five characters from its
+  // own alphabet instead of decimal digits.
+  const steam = secret.startsWith("steam://");
+  if (steam) {
+    secret = secret.slice("steam://".length);
+    digits = 5;
+  } else if (secret.startsWith("otpauth://")) {
+    // Vaultwarden also stores otpauth:// URIs, not just bare secrets.
     const p = new URL(secret).searchParams;
     secret = p.get("secret") || secret;
     period = Number(p.get("period")) || period;
@@ -747,7 +766,7 @@ async function totp(secret, period = 30, digits = 6) {
   const off = h[h.length - 1] & 0x0f;
   const num = ((h[off] & 0x7f) << 24 | h[off + 1] << 16 | h[off + 2] << 8 | h[off + 3]);
   return {
-    code: String(num % 10 ** digits).padStart(digits, "0"),
+    code: steam ? steamCode(num, digits) : String(num % 10 ** digits).padStart(digits, "0"),
     left: period - Math.floor(Date.now() / 1000) % period,
     period,
   };
@@ -879,7 +898,7 @@ $("go").addEventListener("click", async () => {
     entries = (vault.items || []).map((it) => ({
       it,
       hay: [it.name, it.login?.username, folders[it.folderId],
-            it.sshKey?.keyFingerprint, it.identity?.email,
+            it.sshKey?.keyFingerprint, it.identity?.email, it.notes,
             ...(it.login?.uris || []).map((u) => u.uri)].filter(Boolean).join(" ").toLowerCase(),
     }));
 
@@ -1012,6 +1031,17 @@ function totpRow(secret) {
   return dl;
 }
 
+// Bitwarden's LinkedIdType: which field of its own entry a linked custom field
+// stands for, named by the row this page shows that field in. Logins count
+// from 100, cards from 300, identities from 400.
+const LINKED = Object.fromEntries([
+  [100, ["Username", "Password"]],
+  [300, ["Name", "Expires", "Expires", "CVV", "Brand", "Card"]],
+  [400, ["Name", "Name", "Address", "Address", "Address", "City", "State", "City",
+         "Country", "Company", "Email", "Phone", "SSN", "Username", "Passport",
+         "Licence", "Name", "Name", "Name"]],
+].flatMap(([base, labels]) => labels.map((label, i) => [base + i, label])));
+
 function render(query) {
   const list = $("list");
   list.textContent = "";
@@ -1022,7 +1052,10 @@ function render(query) {
     ? `${hits.length} of ${entries.length} entries`
     : `${entries.length} entries`;
 
-  for (const { it } of hits.slice(0, 300)) {
+  // All hits, however many: an entry's fields are only built when it is
+  // opened, so a long list costs little, and a cap would hide entries that
+  // no search can single out.
+  for (const { it } of hits) {
     const d = document.createElement("details");
     d.className = "entry";
     const s = document.createElement("summary");
@@ -1049,15 +1082,33 @@ function render(query) {
       if (folders[it.folderId]) body.append(fieldRow("Folder", folders[it.folderId]));
       if (it.login?.username) body.append(fieldRow("Username", it.login.username));
       if (it.login?.password) body.append(fieldRow("Password", it.login.password, true));
-      if (it.login?.totp) body.append(totpRow(it.login.totp));
+      if (it.login?.totp) {
+        body.append(totpRow(it.login.totp));
+        // The key itself, to set up an authenticator app on a new phone, and
+        // to type in by hand where this page cannot compute the code.
+        body.append(fieldRow("2FA key", it.login.totp, true));
+      }
       for (const u of it.login?.uris || []) if (u.uri) body.append(fieldRow("Address", u.uri));
+      // A passkey cannot be used from here. Listing it tells the owner that
+      // this login needs the account's other way in.
+      for (const c of it.login?.fido2Credentials || []) {
+        const site = [c.rpId || c.rpName, c.userName].filter(Boolean).join(" · ");
+        body.append(fieldRow("Passkey", site || "(no site stored)"));
+      }
       for (const f of it.fields || []) {
-        if (f.value) body.append(fieldRow(f.name || "Field", f.value, f.type === 1));
+        if (f.type === 3) {
+          // Linked (3): no value of its own, it stands for one of the entry's fields.
+          const target = LINKED[f.linkedId];
+          body.append(fieldRow(f.name || "Field", `linked to ${target || "another field"}`));
+        } else if (f.value) {
+          body.append(fieldRow(f.name || "Field", f.value, f.type === 1));
+        }
       }
       // Every card field is optional: Bitwarden leaves out what was never
       // filled in, so each one is checked rather than assumed.
       if (it.card) {
         if (it.card.cardholderName) body.append(fieldRow("Name", it.card.cardholderName));
+        if (it.card.brand) body.append(fieldRow("Brand", it.card.brand));
         if (it.card.number) body.append(fieldRow("Card", it.card.number, true));
         if (it.card.expMonth || it.card.expYear) {
           body.append(fieldRow("Expires",
@@ -1085,17 +1136,31 @@ function render(query) {
       // Identity type (4): addresses and numbers, no secrets of its own.
       if (it.identity) {
         const id = it.identity;
-        const name = [id.firstName, id.middleName, id.lastName].filter(Boolean).join(" ");
+        const name = [id.title, id.firstName, id.middleName, id.lastName].filter(Boolean).join(" ");
         if (name) body.append(fieldRow("Name", name));
         for (const [label, v] of [
           ["Email", id.email], ["Phone", id.phone], ["Company", id.company],
           ["Address", [id.address1, id.address2, id.address3].filter(Boolean).join(", ")],
           ["City", [id.postalCode, id.city].filter(Boolean).join(" ")],
-          ["Country", id.country], ["Username", id.username],
+          ["State", id.state], ["Country", id.country], ["Username", id.username],
         ]) if (v) body.append(fieldRow(label, v));
         for (const [label, v] of [["Passport", id.passportNumber],
                                   ["Licence", id.licenseNumber], ["SSN", id.ssn]])
           if (v) body.append(fieldRow(label, v, true));
+      }
+      // Older passwords, for the server or device that never got the new one.
+      // Bitwarden also keeps old values of hidden fields here, as "name: value".
+      const history = (it.passwordHistory || []).filter((h) => h.password);
+      if (history.length) {
+        const h = document.createElement("details");
+        h.className = "history";
+        const hs = document.createElement("summary");
+        hs.textContent = `Password history (${history.length})`;
+        h.append(hs);
+        for (const p of history) {
+          h.append(fieldRow(p.lastUsedDate?.slice(0, 10) || "Undated", p.password, true));
+        }
+        body.append(h);
       }
       if (it.notes) {
         const dl = fieldRow("Notes", it.notes);
@@ -1105,13 +1170,6 @@ function render(query) {
     });
     d.append(body);
     list.append(d);
-  }
-
-  if (hits.length > 300) {
-    const p = document.createElement("p");
-    p.className = "count";
-    p.textContent = "Showing the first 300. Narrow the search to see the rest.";
-    list.append(p);
   }
 }
 

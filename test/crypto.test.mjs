@@ -6,7 +6,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { argon2id as nobleArgon2id } from "@noble/hashes/argon2.js";
 
 import { loadCrypto } from "../tools/crypto.mjs";
-import { FIXTURE_PASSWORD, VAULT } from "../tools/make-fixtures.mjs";
+import { FIXTURE_PASSWORD, MORE_FIELDS, VAULT } from "../tools/make-fixtures.mjs";
 
 const crypto2 = await loadCrypto();
 const fixture = (name) =>
@@ -133,6 +133,13 @@ for (const [name, file] of [["PBKDF2", "snapshot-pbkdf2.json"], ["Argon2id", "sn
   });
 }
 
+test("a snapshot keeps passkeys, password history and linked fields, dates in plain", async () => {
+  const data = fixture("snapshot-more-fields.json");
+  const vault = await crypto2.readSnapshot(data, await crypto2.unlockSnapshot(FIXTURE_PASSWORD, data));
+  assert.deepEqual(vault.failed, []);
+  assert.deepEqual(vault.items, byName(MORE_FIELDS.items));
+});
+
 test("a damaged snapshot entry is counted and the rest still opens", async () => {
   const data = fixture("snapshot-damaged.json");
   const vault = await crypto2.readSnapshot(data, await crypto2.unlockSnapshot(FIXTURE_PASSWORD, data));
@@ -250,6 +257,20 @@ test("totp reports the seconds left in the window", async () => {
   Date.now = () => 25 * 1000;
   try {
     assert.equal((await crypto2.totp("GEZDGNBVGY3TQOJQ")).left, 5);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("totp writes a steam:// key as a five-character Steam Guard code", async () => {
+  // RFC 4226's counter 1 truncates to 1094287082, which Steam's alphabet
+  // spells PV9M4, least significant character first. The vector comes from a
+  // separate Python HMAC, so only the alphabet is shared with the page, and
+  // that alphabet is the one in Bitwarden's own client.
+  const realNow = Date.now;
+  Date.now = () => 59 * 1000;
+  try {
+    assert.equal((await crypto2.totp("steam://GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")).code, "PV9M4");
   } finally {
     Date.now = realNow;
   }

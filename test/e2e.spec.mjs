@@ -1,7 +1,8 @@
 import { test, expect } from "@playwright/test";
+import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { FIXTURE_PASSWORD, DEMO_PASSWORD } from "../tools/make-fixtures.mjs";
+import { FIXTURE_PASSWORD, DEMO_PASSWORD, PBKDF2, buildExport } from "../tools/make-fixtures.mjs";
 
 const path = (p) => fileURLToPath(new URL(p, import.meta.url));
 const VAULT_HTML = path("../vault.html");
@@ -191,6 +192,65 @@ test("shows every field of the newer item types", async ({ page }) => {
   const passport = page.locator(".entry", { hasText: "Example Passport" });
   await passport.locator("summary").click();
   await expect(passport.locator("dl.f", { hasText: "Surname" })).toContainText("Lovelace");
+});
+
+for (const file of ["more-fields.json", "snapshot-more-fields.json"]) {
+  test(`shows the 2FA key, passkeys, a linked field and the password history (${file})`, async ({ page }) => {
+    await unlock(page, path(`fixtures/${file}`), FIXTURE_PASSWORD);
+    const entry = page.locator(".entry", { hasText: "Example Server" });
+    await entry.locator("summary").first().click();
+
+    const key = entry.locator("dl.f", { hasText: "2FA key" });
+    await key.locator("button.icon").click();
+    await expect(key.locator("dd .val")).toContainText("secret=JBSWY3DPEHPK3PXP");
+    await expect(entry.locator("dl.f", { hasText: "Passkey" })).toContainText("server.example.com · root");
+    await expect(entry.locator("dl.f", { hasText: "Sudo password" })).toContainText("linked to Password");
+
+    const history = entry.locator("details.history");
+    await expect(history.locator("summary")).toHaveText("Password history (2)");
+    await history.locator("summary").click();
+    const older = history.locator("dl.f", { hasText: "2026-02-01" });
+    await expect(older.locator("dd .val")).toHaveText("••••••••••");
+    await older.locator("button.icon").click();
+    await expect(older.locator("dd .val")).toHaveText("older-server-password");
+  });
+}
+
+test("computes a Steam Guard code", async ({ page }) => {
+  await unlock(page, path("fixtures/snapshot-more-fields.json"), FIXTURE_PASSWORD);
+  const entry = page.locator(".entry", { hasText: "Example Steam" });
+  await entry.locator("summary").click();
+  await expect(entry.locator("dd.totp .val")).toHaveText(/^[23456789BCDFGHJKMNPQRTVWXY]{5}$/);
+});
+
+test("shows a card's brand and an identity's title and state", async ({ page }) => {
+  await unlock(page, path("fixtures/snapshot-more-fields.json"), FIXTURE_PASSWORD);
+  const card = page.locator(".entry", { hasText: "Example Branded Card" });
+  await card.locator("summary").click();
+  await expect(card.locator("dl.f", { hasText: "Brand" })).toContainText("Visa");
+
+  const identity = page.locator(".entry", { hasText: "Example Titled Identity" });
+  await identity.locator("summary").click();
+  await expect(identity.locator("dl.f", { hasText: "Name" })).toContainText("Dr Ada Lovelace");
+  await expect(identity.locator("dl.f", { hasText: "State" })).toContainText("Illinois");
+});
+
+test("finds an entry by the text of its notes", async ({ page }) => {
+  await unlock(page, path("fixtures/snapshot-more-fields.json"), FIXTURE_PASSWORD);
+  await page.locator("#q").fill("flowerpot");
+  await expect(page.locator("#count")).toHaveText("1 of 5 entries");
+  await expect(page.locator(".entry")).toHaveText(["Example Note"]);
+});
+
+test("lists every entry of a large vault, not a first page of it", async ({ page }, testInfo) => {
+  const items = Array.from({ length: 450 }, (_, i) => ({
+    id: `d0000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+    type: 1, name: `Same Name ${i}`, login: { username: "admin" },
+  }));
+  const file = testInfo.outputPath("large.json");
+  writeFileSync(file, JSON.stringify(buildExport({ folders: [], items }, FIXTURE_PASSWORD, PBKDF2)));
+  await unlock(page, file, FIXTURE_PASSWORD);
+  await expect(page.locator(".entry")).toHaveCount(450);
 });
 
 test("makes no network requests at any point", async ({ page }) => {

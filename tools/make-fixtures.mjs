@@ -70,9 +70,14 @@ export function buildExport(vault, password, kdf) {
 // A 64-byte user or item key, split the way Bitwarden splits it.
 const splitKey = (raw) => ({ encKey: raw.subarray(0, 32), macKey: raw.subarray(32) });
 
-// Every string of a cipher is its own EncString; ids and numbers stay plain.
+// What Bitwarden leaves plain: ids and record timestamps. A date the owner
+// types in, like a passport's expiry, is an EncString like any other field.
+const PLAIN = new Set(["id", "folderId", "creationDate", "revisionDate", "archivedDate",
+                       "deletedDate", "passwordRevisionDate", "lastUsedDate"]);
+
+// Every other string of a cipher is its own EncString; numbers stay plain.
 function encryptFields(value, keys, name = "") {
-  if (typeof value === "string") return name === "id" || name === "folderId" ? value : encString(value, keys);
+  if (typeof value === "string") return PLAIN.has(name) ? value : encString(value, keys);
   if (Array.isArray(value)) return value.map((v) => encryptFields(v, keys));
   if (value && typeof value === "object") {
     return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, encryptFields(v, keys, k)]));
@@ -185,6 +190,64 @@ const VAULT = {
   ],
 };
 
+// The parts of an entry that sit beside its main fields: passkeys, password
+// history, a linked custom field, a Steam Guard key, and the card and identity
+// fields the first fixture leaves out. Kept out of VAULT for the same reason as
+// the newer item types below.
+const MORE_FIELDS = {
+  folders: [],
+  items: [
+    {
+      id: "c0000000-0000-4000-8000-000000000001",
+      type: 1,
+      name: "Example Server",
+      login: {
+        username: "root",
+        password: "current-server-password",
+        totp: "otpauth://totp/Example:root?secret=JBSWY3DPEHPK3PXP&issuer=Example",
+        uris: [{ uri: "ssh://server.example.com" }],
+        fido2Credentials: [{
+          credentialId: "6f1c9f5e-0000-4000-8000-0000000000aa", keyType: "public-key",
+          keyAlgorithm: "ECDSA", keyCurve: "P-256", keyValue: "bm90LWEtcmVhbC1rZXk=",
+          rpId: "server.example.com", userHandle: "dXNlci1oYW5kbGU=", userName: "root",
+          counter: "0", rpName: "Example Server", userDisplayName: "Root",
+          discoverable: "true", creationDate: "2025-06-01T08:00:00.000Z",
+        }],
+      },
+      passwordHistory: [
+        { password: "older-server-password", lastUsedDate: "2026-02-01T09:30:00.000Z" },
+        { password: "oldest-server-password", lastUsedDate: "2025-07-15T12:00:00.000Z" },
+      ],
+      fields: [{ name: "Sudo password", value: null, type: 3, linkedId: 101 }],
+    },
+    {
+      id: "c0000000-0000-4000-8000-000000000002",
+      type: 1,
+      name: "Example Steam",
+      login: { username: "ada", password: "steam-password", totp: "steam://JBSWY3DPEHPK3PXP" },
+    },
+    {
+      id: "c0000000-0000-4000-8000-000000000003",
+      type: 3,
+      name: "Example Branded Card",
+      card: { brand: "Visa", number: "4111111111111111" },
+    },
+    {
+      id: "c0000000-0000-4000-8000-000000000004",
+      type: 4,
+      name: "Example Titled Identity",
+      identity: { title: "Dr", firstName: "Ada", lastName: "Lovelace", city: "Springfield", state: "Illinois" },
+    },
+    {
+      id: "c0000000-0000-4000-8000-000000000005",
+      type: 2,
+      name: "Example Note",
+      secureNote: { type: 0 },
+      notes: "The spare key is under the blue flowerpot.",
+    },
+  ],
+};
+
 const FIXTURE_PASSWORD = "fixture-master-password";
 const DEMO_PASSWORD = "demo";
 
@@ -247,6 +310,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         passport: { passportNumber: "C01X00T47", surname: "Lovelace" } },
     ],
   }, FIXTURE_PASSWORD, PBKDF2));
+
+  write("test/fixtures/more-fields.json", buildExport(MORE_FIELDS, FIXTURE_PASSWORD, PBKDF2));
+  write("test/fixtures/snapshot-more-fields.json", buildSnapshot(MORE_FIELDS, FIXTURE_PASSWORD, PBKDF2));
 }
 
-export { VAULT, PBKDF2, ARGON2ID, ARGON2ID_DEFAULTS, FIXTURE_PASSWORD, DEMO_PASSWORD };
+export { VAULT, MORE_FIELDS, PBKDF2, ARGON2ID, ARGON2ID_DEFAULTS, FIXTURE_PASSWORD, DEMO_PASSWORD };

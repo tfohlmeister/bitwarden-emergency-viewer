@@ -22,8 +22,10 @@ are looking for. This one is built for the moment when you do not:
 
 - a searchable list, so you do not have to know the entry's name
 - passwords hidden until you click, and every value copyable
-- **live TOTP codes with a countdown**
+- **live TOTP codes with a countdown**, Steam Guard included, and the key
+  itself, to set up an authenticator app on a new phone
 - SSH keys, cards, identities and custom fields rendered, not just logins
+- the password history, for the server that never got the new one
 - meant to sit inside the backup, not to be found and downloaded during the
   emergency
 
@@ -127,7 +129,9 @@ itemKey = decrypt(cipher.key) under userKey        where a cipher has one
 ```
 
 Every field of a cipher is its own `EncString` under the item key, or the user
-key when there is none, except ids and dates. The user key's MAC is the
+key when there is none, except ids and record timestamps such as
+`revisionDate`; a date the owner typed in, like a passport's expiry, is
+encrypted too. The user key's MAC is the
 password check. Entries are opened one at a time, so a damaged one is counted
 and listed by name (where its name still opens) instead of costing the whole
 vault.
@@ -188,6 +192,9 @@ BLAKE2b is checked against OpenSSL, and TOTP against the RFC 6238 vectors.
 - Personal vault only. Organization items need the account's private key and
   are left out of the snapshot, as the CLI leaves them out of a personal export.
 - JavaScript is required.
+- Passkeys are listed by site and user name, so you know which login needs
+  another way in. They cannot be used from this page, and their private keys
+  are not shown.
 - Only the item types Bitwarden currently defines are rendered. Anything else
   shows up in the list but has no fields.
 
