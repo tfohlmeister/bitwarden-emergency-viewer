@@ -147,8 +147,10 @@ test("opens an account snapshot, item keys and folders included", async ({ page 
   await page.locator("#q").fill("infrastructure");
   await expect(page.locator("#count")).toHaveText("2 of 6 entries");
 
-  // Example Mail carries a key of its own in the fixture.
+  // Example Mail carries a key of its own in the fixture. The search renders
+  // after a debounce, so wait for the full list before opening an entry in it.
   await page.locator("#q").fill("");
+  await expect(page.locator("#count")).toHaveText("6 entries");
   const entry = page.locator(".entry", { hasText: "Example Mail" });
   await entry.locator("summary").click();
   await expect(entry.locator("dd.totp .val")).toHaveText(/^\d{6}$/);
