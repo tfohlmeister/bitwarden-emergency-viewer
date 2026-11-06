@@ -31,10 +31,11 @@ function stretch(masterKey) {
 }
 
 // Bitwarden's EncString type 2: AES-256-CBC then HMAC-SHA256 over iv || ct.
+// Strings go in as UTF-8, buffers (keys) as they are.
 function encString(plaintext, { encKey, macKey }) {
   const iv = randomBytes(16);
   const cipher = createCipheriv("aes-256-cbc", encKey, iv);
-  const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const ct = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const mac = createHmac("sha256", macKey).update(Buffer.concat([iv, ct])).digest();
   return `2.${iv.toString("base64")}|${ct.toString("base64")}|${mac.toString("base64")}`;
 }
@@ -63,6 +64,43 @@ export function buildExport(vault, password, kdf) {
     ...kdf,
     encKeyValidation_DO_NOT_EDIT: encString(randomUUID(), keys),
     data: encString(JSON.stringify(vault, null, 2), keys),
+  };
+}
+
+// A 64-byte user or item key, split the way Bitwarden splits it.
+const splitKey = (raw) => ({ encKey: raw.subarray(0, 32), macKey: raw.subarray(32) });
+
+// Every string of a cipher is its own EncString; ids and numbers stay plain.
+function encryptFields(value, keys, name = "") {
+  if (typeof value === "string") return name === "id" || name === "folderId" ? value : encString(value, keys);
+  if (Array.isArray(value)) return value.map((v) => encryptFields(v, keys));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, encryptFields(v, keys, k)]));
+  }
+  return value;
+}
+
+// An account snapshot of the same vault: the user key wrapped by the master
+// key, salted with the account email, and every field encrypted on its own.
+// Items listed in withItemKey get a key of their own, as newer clients write.
+export function buildSnapshot(vault, password, kdf, { email = "ada@example.com", withItemKey = [] } = {}) {
+  const userKeyRaw = randomBytes(64);
+  const userKey = splitKey(userKeyRaw);
+  return {
+    format: "bitwarden-account-snapshot",
+    version: 1,
+    created: "2026-11-06T02:00:00Z",
+    server: "https://vault.example.com",
+    serverVersion: "1.37.5",
+    salt: email,
+    ...kdf,
+    userKey: encString(userKeyRaw, stretch(deriveMaster(password, email, kdf))),
+    folders: vault.folders.map((f) => ({ id: f.id, name: encString(f.name, userKey) })),
+    ciphers: vault.items.map((item) => {
+      if (!withItemKey.includes(item.id)) return { ...encryptFields(item, userKey), key: null };
+      const itemKeyRaw = randomBytes(64);
+      return { ...encryptFields(item, splitKey(itemKeyRaw)), key: encString(itemKeyRaw, userKey) };
+    }),
   };
 }
 
@@ -177,6 +215,38 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const noValidation = buildExport(VAULT, FIXTURE_PASSWORD, PBKDF2);
   delete noValidation.encKeyValidation_DO_NOT_EDIT;
   write("test/fixtures/no-validation.json", noValidation);
+
+  const ITEM_KEYED = [VAULT.items[0].id, VAULT.items[5].id];
+  write("test/fixtures/snapshot-pbkdf2.json",
+        buildSnapshot(VAULT, FIXTURE_PASSWORD, PBKDF2, { withItemKey: ITEM_KEYED }));
+  write("test/fixtures/snapshot-argon2id.json",
+        buildSnapshot(VAULT, FIXTURE_PASSWORD, ARGON2ID, { withItemKey: ITEM_KEYED }));
+
+  // One entry damaged and one already in the trash: the rest has to open, the
+  // damaged one has to be counted, and the deleted one has to stay out.
+  const partly = buildSnapshot(VAULT, FIXTURE_PASSWORD, PBKDF2, { withItemKey: ITEM_KEYED });
+  const [p2, rest] = partly.ciphers[1].name.split(".", 2);
+  const [piv, pct, pmac] = rest.split("|");
+  const bent = Buffer.from(pct, "base64");
+  bent[0] ^= 0xff;
+  partly.ciphers[1].name = `${p2}.${piv}|${bent.toString("base64")}|${pmac}`;
+  partly.ciphers.push({ ...partly.ciphers[2], id: "a0000000-0000-4000-8000-0000000000ff",
+                        deletedDate: "2026-11-01T00:00:00Z" });
+  write("test/fixtures/snapshot-damaged.json", partly);
+
+  // The item types newer than the page's dedicated blocks, which it shows field
+  // by field. Kept out of VAULT so the export fixtures stay what a CLI writes.
+  write("test/fixtures/snapshot-newer-types.json", buildSnapshot({
+    folders: [],
+    items: [
+      { id: "b0000000-0000-4000-8000-000000000006", type: 6, name: "Example Bank Account",
+        bankAccount: { bankName: "Example Bank", iban: "DE89370400440532013000", pin: "4711" } },
+      { id: "b0000000-0000-4000-8000-000000000007", type: 7, name: "Example Licence",
+        driversLicense: { licenseNumber: "B072RRE2I55", issuingCountry: "DE" } },
+      { id: "b0000000-0000-4000-8000-000000000008", type: 8, name: "Example Passport",
+        passport: { passportNumber: "C01X00T47", surname: "Lovelace" } },
+    ],
+  }, FIXTURE_PASSWORD, PBKDF2));
 }
 
 export { VAULT, PBKDF2, ARGON2ID, ARGON2ID_DEFAULTS, FIXTURE_PASSWORD, DEMO_PASSWORD };

@@ -11,10 +11,13 @@ import { readFileSync } from "node:fs";
 
 import { loadCrypto } from "../tools/crypto.mjs";
 import { FIXTURE_PASSWORD } from "../tools/make-fixtures.mjs";
-import { ITEM_NAMES, KDF, OUT } from "../tools/vaultwarden-fixture.mjs";
+import {
+  ACCOUNT_PASSWORD, ITEM_KEYED, ITEM_NAMES, KDF, OUT, SNAPSHOT_OUT,
+} from "../tools/vaultwarden-fixture.mjs";
 
 const crypto2 = await loadCrypto();
 const data = JSON.parse(readFileSync(OUT, "utf8"));
+const snapshot = JSON.parse(readFileSync(SNAPSHOT_OUT, "utf8"));
 
 test("the export Bitwarden wrote carries the account's Argon2id parameters", () => {
   assert.equal(data.encrypted, true);
@@ -48,4 +51,42 @@ test("a wrong password is refused on a real export too", async () => {
     () => crypto2.decrypt(data.encKeyValidation_DO_NOT_EDIT, keys),
     /MAC mismatch/,
   );
+});
+
+// The snapshot is the server's own encrypted copy, so these check our reading
+// of what Vaultwarden stores, not of what an export writer produces.
+test("the snapshot carries the account's KDF and salt as the server reports them", () => {
+  assert.equal(snapshot.format, "bitwarden-account-snapshot");
+  assert.equal(snapshot.kdfType, 1);
+  assert.equal(snapshot.kdfIterations, KDF.kdfIterations);
+  assert.equal(snapshot.kdfMemory, KDF.kdfMemory);
+  assert.equal(snapshot.kdfParallelism, KDF.kdfParallelism);
+  assert.equal(snapshot.salt, "fixture@example.com");
+});
+
+test("the page opens a snapshot of a real Vaultwarden account", async () => {
+  const vault = await crypto2.readSnapshot(
+    snapshot, await crypto2.unlockSnapshot(ACCOUNT_PASSWORD, snapshot));
+
+  assert.deepEqual(vault.failed, []);
+  assert.deepEqual(vault.items.map((i) => i.name).sort(),
+                   [...ITEM_NAMES, ITEM_KEYED.name].sort());
+
+  const login = vault.items.find((i) => i.name === "Vaultwarden Login");
+  assert.equal(login.login.password, "correct-horse-battery-staple");
+  assert.equal(login.login.totp, "JBSWY3DPEHPK3PXP");
+  assert.equal(login.login.uris[0].uri, "https://mail.example.com");
+  assert.ok(login.fields.some((f) => f.name === "PIN" && f.value === "8842"));
+
+  const keyed = vault.items.find((i) => i.name === ITEM_KEYED.name);
+  assert.ok(snapshot.ciphers.some((c) => c.key), "the item-keyed cipher lost its key");
+  assert.equal(keyed.login.password, ITEM_KEYED.login.password);
+
+  const ssh = vault.items.find((i) => i.sshKey);
+  assert.match(ssh.sshKey.privateKey, /BEGIN OPENSSH PRIVATE KEY/);
+  assert.equal(vault.items.find((i) => i.identity).identity.lastName, "Lovelace");
+});
+
+test("a wrong password is refused on a real snapshot too", async () => {
+  await assert.rejects(() => crypto2.unlockSnapshot("not-the-password", snapshot), /MAC mismatch/);
 });

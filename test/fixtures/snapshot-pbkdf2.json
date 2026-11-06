@@ -1,0 +1,114 @@
+{
+  "format": "bitwarden-account-snapshot",
+  "version": 1,
+  "created": "2026-11-06T02:00:00Z",
+  "server": "https://vault.example.com",
+  "serverVersion": "1.37.5",
+  "salt": "ada@example.com",
+  "kdfType": 0,
+  "kdfIterations": 600000,
+  "userKey": "2.1ESNpX7xjX/xfbBh+4yBnQ==|26/HlmvpOo6w1WQlntr5CEx/juuN6YWbYXWDXgYHpKoNOyB7FfYWagewXH5KuhzadIUqpTPblrj7QklXixKpk1eEjcZRcjLj8nwHgvEJ7tM=|kcQcRexJQkI+QkLy8HGQEWuqQGd+kdHW1xNuRkT3pvY=",
+  "folders": [
+    {
+      "id": "6f1c9f5e-0000-4000-8000-000000000001",
+      "name": "2.FeVop3e1lZZ7ZUlO1Zxanw==|CR+HpwdGsw1qpngCI1O6Iw==|rYoL5L+/5mtkpDEukqgTJns4+O6EyIIEP1wzx+VaDKo="
+    }
+  ],
+  "ciphers": [
+    {
+      "id": "a0000000-0000-4000-8000-000000000001",
+      "type": 1,
+      "name": "2.LErbMh/NtjUbuJi+CojsKw==|f00KX4CxJHjZxJ16JFuvLw==|xlx/0PrbOhf3yrPjpj/Z4nZiHh4EX2cq4SeaStmsMEo=",
+      "folderId": "6f1c9f5e-0000-4000-8000-000000000001",
+      "notes": "2.jzbZHRIGxoIF+XuelBzUYA==|y36DjrslRRT4d0wEZpq80C/cBHuVKAmeHPyD5dIqSEmqlhbJhPcZYVtfV/ABEoCyOx+sdJtS2JP9dohhIVGeX3WpsKMCE0Dmv0lOg1CWQKw=|EMJF8iZm8AqpXOoxjL29496PhIDReG8oCBgBHQ4DYw4=",
+      "login": {
+        "username": "2.jU9GCpdBphMW7iuVcV+oCg==|8IOvA/pEIY0Eow1rFOEqYQ==|Pw1jzTMjBgD6XuOJEQ7RTcaw9/m2REkn/tQeqEuUisU=",
+        "password": "2.N+0uwKg8p5dJXNst2ZDfDA==|M5uwufYeuZHpaLSvEUa24T557gpfGBxN0FLA/L86v68=|H68Zrja/XiZHlRNxHiOBbuShvLSU9izBA8goOjwlWRY=",
+        "totp": "2.+7DQmwkR1pNYBlkTbiBN8w==|+O409pND/AjJY/Rzp/pT4kmdrmGQz+tOC92ERzHUD4E=|xMeVYhQqY3Qfv8gsY3qA/gr8/U8J3f/ttpqt5NoDK6I=",
+        "uris": [
+          {
+            "uri": "2.giCnpg2rKsAarg8kg3vPSw==|X3y/FI3BLSsB/EprR5Ay56v9qJru+E6ApjM/cP8sIdI=|EctUE9hRrNvShLjiUp6L8Gzx6AoQNrmLoxWBE5VPqjM="
+          }
+        ]
+      },
+      "fields": [
+        {
+          "name": "2.20iboCWcXRosEE5x+aArig==|mheKuhHj8sTR4deC/ed7Zw==|XBxsjXUEN2hyzIILnGvr0FT/fiKkhLGJM+4JnXNsLX0=",
+          "value": "2.cuTAPS/XJIviX4ZgikoDhw==|ffE+htZy6QRTa4FPQbrMjA==|oB0dijeiN0MvTOBajBj0Gm7hQ3QJaMdf0aZs15loAYA=",
+          "type": 0
+        },
+        {
+          "name": "2.NBXRib45Sfw1Sm6UlXCHJg==|POpesdInwAtyyquYv+/1SA==|RcmukeWEJkcrunqV5j4eTOWgtXZnvG+vOda6VcC39DY=",
+          "value": "2.ZQDw7Fa2nXEWJuvO9EnPrQ==|G94OtbMbBtjc5QRt+lSnRg==|yXBX1WPkCOoB9lyinxmJkPCAupcT3gG1ruMXms1euHk=",
+          "type": 1
+        }
+      ],
+      "key": "2.i5Kv9zT+uHm3TuAYZslRiw==|kZcHip07p/csoHGzgKqUnEawPGMHHCHILxnzWM843+R1T/M7B/39CRzTcAJJAnaARtJCzzmWKA8P5pjQ3ylRIvFk8ODEgCJDEhoeIV8fNJU=|+yJck1UXbeu6kv64X9zz0c4Dlr8kvNStFkyUMZpI8xs="
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000002",
+      "type": 1,
+      "name": "2.H++/Y6qomGOIX6XZro3sCg==|KijKBhzZ0gj10P6iBgep8Q==|xulebUjl++jkXudRya4LGtMqk5/oZ9nRcf64cfYbPuQ=",
+      "login": {
+        "username": "2.81Vl1Qvoop6TKHRkqcZCOQ==|HQ+P13LTVhczBQtFwXewKA==|A04/M6IYWGuIjt+DqOE9o4b/gJbDwd4Ce8NkTPaEgtg=",
+        "password": "2.8Aol6uiW64+/riePCOtOnA==|O17zcdlSH1+uQN18vwsAWx9/lrhDvulGh0fMUvMW8Qo=|1KRVRH1VOT4SVkagfHwek6p5uqlV6CuPeSNpyuN84oY=",
+        "uris": [
+          {
+            "uri": "2.nzM5WwDkCB/8XW2j7hjRrw==|BcKTi1EPBUbDVq5mGFRPJCC5uOjkywkS0MN3ahF5jqw=|00MQXNIkaH/6U2G4fCNcYoDfcYM6iKFuyRrYtknrOsc="
+          }
+        ]
+      },
+      "key": null
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000003",
+      "type": 3,
+      "name": "2.V+9UnqohmHIZARrhb35ZhA==|1EpwM0wBl+GvZ0XIpzjAxw==|5nSI68vXGMipquwCSI1rNcYRwOBXm+RzVh4nmSIYnl0=",
+      "card": {
+        "number": "2.GzKbdOcJ81/7bhj5y8BmVg==|0FQ8qQ+zyLBngdIW3jVBQ9gwPr4YDBJmyWjAWjwxenw=|c4KjoeM/TnDNwC9n3+3i25n00IYLKOsB0CABnVkDfss=",
+        "expMonth": "2.EAC605aCw53tiXQvScFIaw==|4Xf6QCx6EZKyAGmIo223hQ==|Pl2Ffg4Lbn+3T5/fjCMa8xveRSrAjR6D9f70TXi2G+4=",
+        "expYear": "2.WgoqCiPr17uPtVMyLPwUMQ==|TuuihOSJxbQugyrPLYVONg==|MAT0h3MsgIKnr4DWo3ZRF5ptSlw7Fl02mb/JNO1P1/U=",
+        "code": "2.kVsd4r8jVJeTJCwq74B2lQ==|iZ32O/kSxhb4UXRO/NL9mQ==|k9euJzdX9s6Xb4vJtkCI/T/p5eICSHDoJW1COcMl3V0="
+      },
+      "key": null
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000006",
+      "type": 3,
+      "name": "2.npxAoAeSxMnQNPsGVz/5mQ==|zeR+XCguykjTRU4besYBn1f0bFMkpFmsdxLinRcYuPE=|a4ZUeXS8mxGhxsaCJwYvliyUe17ejcAXPphlUc4DIkk=",
+      "card": {
+        "number": "2.ROW7/J06W7e/MbFa9xa7HA==|GgUAqjzS5HQkIm1pfBFFAeqvuf7BfbWRVR+IJhXASZI=|f60CrdB6MdQaWvcMxpqXolmMn5zaU06vk5xrFvQmat4="
+      },
+      "key": null
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000004",
+      "type": 4,
+      "name": "2.TA0wh3xx4LW0HiPrXmKtig==|XkvJ8WJNZuFYwGlvvoVv8J3u91MGmnUxa27XuE/SvzI=|4lS202FItSAgZskx6AvzwCvOGcL37S0CJ81Mn034MRQ=",
+      "identity": {
+        "firstName": "2.xQLm1aq/tWGY8xD8lBvNbw==|G3+MIMo5axfx0Xtdu+9oTg==|EZdZ0HviZVbRpntXkGWIZieWiKATBBeCzlNss6ALqDQ=",
+        "lastName": "2.clcalbNUq7+5HGhmaspr4w==|IAkjiezNQ2N5wFE1fz8GpQ==|+40Pd+ivyIjMsoTOiadg1mpJU3PPV3qVqapPvJyQxX4=",
+        "email": "2./8TJQt+IkLjIQUvBdVOCvQ==|oCRShHoGLgaJXEamF8WdUQ==|zpgVgnqr9s8YdkW0DSEYzTYCJV4/kkU9FXen9zPwqhs=",
+        "phone": "2.204h1nSJK+joOeMijZIhYg==|4YQ3r1u3y0Td8lVOa4HTMA==|d71xmNhoC53OIFAwIYvD6WwZU6PmhiwqipGJTTrzv1w=",
+        "address1": "2.UePjFOOSu5p/+eQgr9fH3Q==|Vn18BZkGQozgrek59fx+PhrQEgSc+MN2tOkOHlRnPWA=|7YFp27gmnjSHnVOkDrQM1fRbhx82oC5J/xzrkCysJeo=",
+        "city": "2.igc+d2V8WyOJRmaa4Q4ZYQ==|+q3uFDZ+vgkd2/nFIro9Cw==|LaH/IJs1emjxcXFvOHYptA1VoDl4gcXF+T7qj4C0zkc=",
+        "postalCode": "2.n4Ao86PZ0eIuUR5lc2QYYQ==|FU9ZEx2cbClmQQaW56vnNA==|OXlxfGEWgNEe34wHuTLBftrVkj5Yp1emZUttGeOGjOg=",
+        "country": "2.10if8yCsxnMYwK1qTn1thA==|7YeBJedCF9hD+3AnKvi9vA==|HoqpwCTaopNLAeX7gTrXcWzeyrDnw1UxfSZK5TvZVHA=",
+        "passportNumber": "2.kmx7H1Sd6RMCQY2bG+TBNQ==|0gE+3rq0YY0hrCQJd9ByiQ==|JirieEb7Yy0nc4X/Qse9RZ2Knpt5bh0kK03yYAX/ps0="
+      },
+      "key": null
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000005",
+      "type": 5,
+      "name": "2.K8JuzY4NkjRYpd7gldzyBg==|LGHIWa47DM610kwMV19Z7g==|RCu/V6PiBIs9PL0Txeyzr2UYH8+UrTxhsiNb54mbEkQ=",
+      "folderId": "6f1c9f5e-0000-4000-8000-000000000001",
+      "sshKey": {
+        "privateKey": "2.u4lvfVPVTRTXlL5C/s4s8Q==|Nmr3/z3M+oW5IBfN03eTbmrASQdlyAxvXWhWXaeyTfs3GlRxvEOUReCdnRiXNfnyJGTM8HtK0f8d3R/5+NZVAQJBg0q8Hsq5D8Q8BSmFccmqQXQnBSrlmPWaRXkRSSjC|hl8VLkT4BAIVGtpWRE6IPbM0VMJgJgf6HZt8MTRaeHQ=",
+        "publicKey": "2.cMIP4lIvWbTafnTC3DXwPw==|ycgfD8W/TisQmlX8B8ZceDYqMaPR+D3mqu7XqYld/xRN2Fpo/0+rJhCziipQWkvz7y0uyXf33EBMnCitBFoZYA==|DBGxjraKbRcKkNhO0S3V0h/ALKTqGmfp5pkBtAwdJVI=",
+        "keyFingerprint": "2.k5auoJZVnRU1+FABBh39XA==|peY57XGH45jTrSPUGMCExW8xFuF3BKMZUrqt28f/zA4yLhxeLSSRVXwqfq3zZAml|7W1VrUs7OhIbpGO2+3N7aO1pnuyp38N733Wb/nyvkRU="
+      },
+      "key": "2.HEZvcOMrSySvsY22P8q7vw==|vKfB8teSODVKze35MMwRTbXIGgM+3Lat54MoynNX6XzvRwiZucOrgonWCXQ0v69+ArKXavS0bpDu3cCIDbbLsdPVmY3R4o/b6T6oyG4+uTc=|koos+C31k9M0bgZ4yRiDwK/zoZ9+VTX+gvV9xOgidWw="
+    }
+  ]
+}

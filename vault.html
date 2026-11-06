@@ -148,12 +148,22 @@
 // tool that is never exercised is a tool nobody knows is broken. Do not remove
 // the markers.
 //
-// Mirrors what Bitwarden does for a password-protected export:
+// Opens two formats, both keyed by the master password alone.
+//
+// A password-protected export, as Bitwarden writes it:
 //   masterKey = PBKDF2-SHA256(password, salt-as-STRING, kdfIterations)   kdfType 0
 //   masterKey = Argon2id(password, SHA-256(salt-as-STRING), ...)         kdfType 1
 //   encKey    = HKDF-Expand(masterKey, "enc")
 //   macKey    = HKDF-Expand(masterKey, "mac")
 // The whole vault is ONE EncString under "data", not one per field.
+//
+// An account snapshot: the encrypted vault as the server hands it to every
+// client at sync, never decrypted on the way into the backup. Same KDF, salted
+// with the account's salt (its email address), then:
+//   userKey = decrypt(userKey) under encKey/macKey: 64 bytes, enc | mac
+//   itemKey = decrypt(cipher.key) under the user key, where a cipher has one
+// and every field of a cipher is its own EncString under the item key, or the
+// user key when there is none.
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -604,7 +614,7 @@ async function deriveKeys(password, data, onProgress = null) {
   };
 }
 
-async function decrypt(encString, keys) {
+async function decryptBytes(encString, keys) {
   const [type, payload] = encString.split(".", 2);
   if (type !== "2") throw new Error(`Unsupported EncString type ${type}`);
   const [iv, ct, mac] = payload.split("|").map(b64);
@@ -614,7 +624,86 @@ async function decrypt(encString, keys) {
   if (!await crypto.subtle.verify("HMAC", keys.macKey, mac, cat(iv, ct))) {
     throw new Error("MAC mismatch");
   }
-  return dec.decode(await crypto.subtle.decrypt({ name: "AES-CBC", iv }, keys.encKey, ct));
+  return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-CBC", iv }, keys.encKey, ct));
+}
+
+async function decrypt(encString, keys) {
+  return dec.decode(await decryptBytes(encString, keys));
+}
+
+// ------------------------------------------------------------- snapshot ---
+
+const SNAPSHOT_FORMAT = "bitwarden-account-snapshot";
+
+// A user key or an item key: 32 bytes for AES, then 32 for the HMAC.
+async function importKey(raw) {
+  if (raw.length !== 64) throw new Error(`Expected a 64-byte key, got ${raw.length} bytes`);
+  return {
+    encKey: await crypto.subtle.importKey(
+      "raw", raw.slice(0, 32), { name: "AES-CBC" }, false, ["decrypt"]),
+    macKey: await crypto.subtle.importKey(
+      "raw", raw.slice(32), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]),
+  };
+}
+
+// The password check of a snapshot. Its MAC is the one a wrong password fails;
+// everything after it is a question of whether the file is intact.
+async function unlockSnapshot(password, snapshot, onProgress = null) {
+  if (snapshot.format !== SNAPSHOT_FORMAT || snapshot.version !== 1) {
+    throw new Error(`Not a version 1 ${SNAPSHOT_FORMAT}`);
+  }
+  if (!snapshot.userKey) throw new Error("Snapshot has no userKey");
+  const masterKeys = await deriveKeys(password, snapshot, onProgress);
+  return importKey(await decryptBytes(snapshot.userKey, masterKeys));
+}
+
+// Plain by design: ids and dates. Every other string of a cipher is an
+// EncString, so one that does not decrypt fails its entry rather than being
+// shown as if it were the value.
+const PLAIN = new Set(["id", "folderId", "creationDate", "revisionDate", "archivedDate",
+                       "deletedDate", "passwordRevisionDate", "lastUsedDate"]);
+
+async function decryptFields(value, keys, name = "") {
+  if (typeof value === "string") return PLAIN.has(name) ? value : decrypt(value, keys);
+  if (Array.isArray(value)) return Promise.all(value.map((v) => decryptFields(v, keys, name)));
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = await decryptFields(v, keys, k);
+    return out;
+  }
+  return value;
+}
+
+// Returns the same { folders, items } shape a decrypted export has, plus the
+// entries that failed. One damaged entry must not cost the rest of the vault,
+// so entries fail one at a time, and keep their name where it still opens, so
+// the owner knows which credential to fetch from another copy.
+async function readSnapshot(snapshot, userKey) {
+  const folders = [];
+  const items = [];
+  const failed = [];
+  for (const f of snapshot.folders || []) {
+    try {
+      folders.push({ id: f.id, name: await decrypt(f.name, userKey) });
+    } catch (e) {
+      failed.push({ id: f.id, error: e.message });
+    }
+  }
+  for (const cipher of snapshot.ciphers || []) {
+    if (cipher.deletedDate) continue;
+    let keys = userKey;
+    try {
+      const { key, ...fields } = cipher;
+      if (key) keys = await importKey(await decryptBytes(key, userKey));
+      items.push(await decryptFields(fields, keys));
+    } catch (e) {
+      let name = null;
+      try { name = await decrypt(cipher.name, keys); } catch { /* the name is damaged too */ }
+      failed.push({ id: cipher.id, name, error: e.message });
+    }
+  }
+  items.sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
+  return { folders, items, failed };
 }
 
 // ------------------------------------------------------------------ totp ---
@@ -635,19 +724,25 @@ function base32(secret) {
   return out;
 }
 
+const TOTP_HASHES = { SHA1: "SHA-1", SHA256: "SHA-256", SHA512: "SHA-512" };
+
 async function totp(secret, period = 30, digits = 6) {
   // Vaultwarden also stores otpauth:// URIs, not just bare secrets.
+  let hash = "SHA-1";
   if (secret.startsWith("otpauth://")) {
     const p = new URL(secret).searchParams;
     secret = p.get("secret") || secret;
     period = Number(p.get("period")) || period;
     digits = Number(p.get("digits")) || digits;
+    const algorithm = (p.get("algorithm") || "SHA1").toUpperCase();
+    hash = TOTP_HASHES[algorithm];
+    if (!hash) throw new Error(`unsupported TOTP algorithm ${algorithm}`);
   }
   const counter = Math.floor(Date.now() / 1000 / period);
   const buf = new Uint8Array(8);
   new DataView(buf.buffer).setBigUint64(0, BigInt(counter));
   const key = await crypto.subtle.importKey(
-    "raw", base32(secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+    "raw", base32(secret), { name: "HMAC", hash }, false, ["sign"]);
   const h = new Uint8Array(await crypto.subtle.sign("HMAC", key, buf));
   const off = h[h.length - 1] & 0x0f;
   const num = ((h[off] & 0x7f) << 24 | h[off + 1] << 16 | h[off + 2] << 8 | h[off + 3]);
@@ -724,31 +819,38 @@ $("go").addEventListener("click", async () => {
     $("go").disabled = false;
     return say("That is not valid JSON.", "err");
   }
-  if (!data.encrypted || !data.passwordProtected) {
+  const snapshot = data.format === SNAPSHOT_FORMAT;
+  if (!snapshot && (!data.encrypted || !data.passwordProtected)) {
     $("go").disabled = false;
     return say("Not a password-protected export. This page can only open " +
-               "encrypted_json with passwordProtected set.", "err");
+               "encrypted_json with passwordProtected set, or an account snapshot.", "err");
+  }
+  if (!snapshot && !data.encKeyValidation_DO_NOT_EDIT) {
+    $("go").disabled = false;
+    return say("This export has no encKeyValidation block. The file is " +
+               "incomplete or was edited.", "err");
   }
 
-  try {
-    // Argon2id reports progress because it runs for seconds in plain
-    // JavaScript; PBKDF2 runs inside WebCrypto and cannot report anything.
-    const keys = await deriveKeys(password, data, (done) => {
-      say(`Deriving the key, this takes a moment… ${Math.round(done * 100)}%`);
-    });
-    if (!data.encKeyValidation_DO_NOT_EDIT) {
-      $("go").disabled = false;
-      return say("This export has no encKeyValidation block. The file is " +
-                 "incomplete or was edited.", "err");
-    }
+  // Argon2id reports progress because it runs for seconds in plain
+  // JavaScript; PBKDF2 runs inside WebCrypto and cannot report anything.
+  const progress = (done) => {
+    say(`Deriving the key, this takes a moment… ${Math.round(done * 100)}%`);
+  };
 
-    // Two failures that look alike and are not. The validation block is the
-    // password check; once it opens, the password is proven right, and a
-    // failure on the vault data means the file is damaged. Reporting that as a
-    // wrong password would send someone retyping forever instead of reaching
-    // for another copy of the backup.
+  try {
+    // Two failures that look alike and are not. The first MAC (the export's
+    // validation block, the snapshot's user key) is the password check; once it
+    // opens, the password is proven right, and a failure on the vault data
+    // means the file is damaged. Reporting that as a wrong password would send
+    // someone retyping forever instead of reaching for another copy.
+    let keys;
     try {
-      await decrypt(data.encKeyValidation_DO_NOT_EDIT, keys);
+      if (snapshot) {
+        keys = await unlockSnapshot(password, data, progress);
+      } else {
+        keys = await deriveKeys(password, data, progress);
+        await decrypt(data.encKeyValidation_DO_NOT_EDIT, keys);
+      }
     } catch (e) {
       $("go").disabled = false;
       const wrong = e.message.includes("MAC") || e.name === "OperationError";
@@ -757,13 +859,21 @@ $("go").addEventListener("click", async () => {
 
     let vault;
     try {
-      vault = JSON.parse(await decrypt(data.data, keys));
+      vault = snapshot ? await readSnapshot(data, keys) : JSON.parse(await decrypt(data.data, keys));
     } catch (e) {
       $("go").disabled = false;
       return say("The master password is correct, but the vault data could not " +
                  "be read: " + e.message + ". This copy of the export is " +
                  "damaged; try another one.", "err");
     }
+    // A snapshot opens entry by entry, so a damaged one is listed, not fatal.
+    const readable = (vault.items || []).length;
+    const unreadable = vault.failed?.length
+      ? `, ${vault.failed.length} could not be read (this copy is damaged; try another one)`
+      : "";
+    vault.items = [...(vault.items || []), ...(vault.failed || []).map((f) => ({
+      name: `${f.name ?? "(entry with a damaged name)"} (damaged)`, damaged: true,
+    }))];
 
     folders = Object.fromEntries((vault.folders || []).map((f) => [f.id, f.name]));
     entries = (vault.items || []).map((it) => ({
@@ -779,7 +889,7 @@ $("go").addEventListener("click", async () => {
     // which file is open, not repeat how to open one.
     $("title").textContent = fileName;
     $("sub").textContent =
-      `${(vault.items || []).length} entries, decrypted in this window only`;
+      `${readable} entries, decrypted in this window only${unreadable}`;
     $("unlock").classList.add("hidden");
     $("result").classList.remove("hidden");
     render("");
@@ -929,6 +1039,13 @@ function render(query) {
     body.className = "body";
     d.addEventListener("toggle", () => {
       if (!d.open) { body.textContent = ""; return; }
+      if (it.damaged) {
+        const p = document.createElement("p");
+        p.className = "msg err";
+        p.textContent = "This entry could not be read from this copy. Try another copy of the archive.";
+        body.append(p);
+        return;
+      }
       if (folders[it.folderId]) body.append(fieldRow("Folder", folders[it.folderId]));
       if (it.login?.username) body.append(fieldRow("Username", it.login.username));
       if (it.login?.password) body.append(fieldRow("Password", it.login.password, true));
@@ -954,6 +1071,16 @@ function render(query) {
         if (it.sshKey.privateKey) body.append(fieldRow("Private key", it.sshKey.privateKey, true));
         if (it.sshKey.publicKey) body.append(fieldRow("Public key", it.sshKey.publicKey));
         if (it.sshKey.keyFingerprint) body.append(fieldRow("Fingerprint", it.sshKey.keyFingerprint));
+      }
+      // Bank account (6), driver's licence (7) and passport (8) are newer than
+      // this page's dedicated blocks. Every field they carry is shown, numbers
+      // and codes hidden until revealed, so nothing in them is out of reach.
+      for (const block of [it.bankAccount, it.driversLicense, it.passport]) {
+        for (const [k, v] of Object.entries(block || {})) {
+          if (typeof v !== "string" || !v) continue;
+          const label = k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
+          body.append(fieldRow(label, v, /number|pin|code|password|iban|cvv/i.test(k)));
+        }
       }
       // Identity type (4): addresses and numbers, no secrets of its own.
       if (it.identity) {

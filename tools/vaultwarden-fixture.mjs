@@ -5,23 +5,25 @@
 // throwaway Vaultwarden, registers an account whose KDF is Argon2id, fills the
 // vault through the official Bitwarden CLI and lets that CLI write the
 // encrypted export. If Bitwarden ever changes how a password-protected export
-// is built, this is what notices.
+// is built, this is what notices. It also takes an account snapshot of the same
+// vault from the server's sync answer, the other format the page opens.
 //
 // Needs Docker and openssl. Run it with `npm run fixture:vaultwarden`.
 import { execFileSync } from "node:child_process";
 import { request } from "node:https";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
-  createCipheriv, createHmac, generateKeyPairSync, pbkdf2Sync, randomBytes,
+  createCipheriv, createHmac, generateKeyPairSync, pbkdf2Sync, randomBytes, randomUUID,
 } from "node:crypto";
 import { argon2id } from "@noble/hashes/argon2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { FIXTURE_PASSWORD } from "./make-fixtures.mjs";
+import { snapshotFromSync } from "./snapshot.mjs";
 
 // The Bitwarden CLI refuses plain HTTP, so the throwaway server gets a
 // throwaway certificate that only the processes started here ever trust.
@@ -32,6 +34,8 @@ const SERVER = `https://localhost:${PORT}`;
 const EMAIL = "fixture@example.com";
 const ACCOUNT_PASSWORD = "fixture-account-password";
 const OUT = fileURLToPath(new URL("../test/fixtures/vaultwarden-argon2id.json", import.meta.url));
+const SNAPSHOT_OUT = fileURLToPath(
+  new URL("../test/fixtures/vaultwarden-snapshot.json", import.meta.url));
 
 // The account KDF that the export inherits. Bitwarden's own Argon2id defaults.
 const KDF = { kdf: 1, kdfIterations: 6, kdfMemory: 32, kdfParallelism: 4 };
@@ -60,11 +64,11 @@ function makeCertificate(dir) {
 
 // Node's global fetch cannot be pointed at a CA at runtime, so the two calls
 // that have to trust the throwaway certificate go through node:https directly.
-function httpsRequest(url, { method = "GET", body, ca } = {}) {
+function httpsRequest(url, { method = "GET", body, ca, headers = {} } = {}) {
   return new Promise((resolve, reject) => {
     const req = request(url, {
       method, ca,
-      headers: body ? { "Content-Type": "application/json" } : {},
+      headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...headers },
     }, (res) => {
       const chunks = [];
       res.on("data", (chunk) => chunks.push(chunk));
@@ -111,10 +115,24 @@ function accountMasterKey(password, email) {
   }));
 }
 
+// Derived once per run, not at import: the tests import this module for its
+// constants and should not pay for an Argon2id run.
+let account;
+function credentials() {
+  if (!account) {
+    const masterKey = accountMasterKey(ACCOUNT_PASSWORD, EMAIL);
+    account = {
+      masterKey,
+      masterPasswordHash: pbkdf2Sync(masterKey, ACCOUNT_PASSWORD, 1, 32, "sha256").toString("base64"),
+      userKey: randomBytes(64),             // what actually protects the vault
+    };
+  }
+  return account;
+}
+
 // The CLI cannot create accounts, so registration goes straight at the API.
 async function register(ca) {
-  const masterKey = accountMasterKey(ACCOUNT_PASSWORD, EMAIL);
-  const userKey = randomBytes(64);          // what actually protects the vault
+  const { masterKey, masterPasswordHash, userKey } = credentials();
   const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 
   // Without SMTP, Vaultwarden hands the email verification token back directly
@@ -130,7 +148,7 @@ async function register(ca) {
     email: EMAIL,
     emailVerificationToken: verify.body.trim(),
     name: "Fixture",
-    masterPasswordHash: pbkdf2Sync(masterKey, ACCOUNT_PASSWORD, 1, 32, "sha256").toString("base64"),
+    masterPasswordHash,
     masterPasswordHint: null,
     key: encString(userKey, hkdfExpand(masterKey, "enc"), hkdfExpand(masterKey, "mac")),
     keys: {
@@ -145,12 +163,75 @@ async function register(ca) {
   const res = await httpsRequest(`${SERVER}/identity/accounts/register/finish`, {
     method: "POST", body: JSON.stringify(payload), ca,
   });
-  // Re-running against a container that still has the account is fine; the
-  // password is fixed, so the existing account is the one we want.
-  if (res.status === 400 && res.body.includes("user already exists")) return;
   if (res.status < 200 || res.status >= 300) {
     throw new Error(`register failed: HTTP ${res.status} ${res.body}`);
   }
+}
+
+async function accessToken(ca) {
+  const form = new URLSearchParams({
+    grant_type: "password", username: EMAIL, password: credentials().masterPasswordHash,
+    scope: "api offline_access", client_id: "cli",
+    deviceType: "25", deviceIdentifier: randomUUID(), deviceName: "fixture",
+  }).toString();
+  const res = await httpsRequest(`${SERVER}/identity/connect/token`, {
+    method: "POST", body: form, ca,
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  });
+  if (res.status !== 200) throw new Error(`token failed: HTTP ${res.status} ${res.body}`);
+  return JSON.parse(res.body).access_token;
+}
+
+// No client writes per-item keys against a Vaultwarden that does not advertise
+// cipher key encryption, yet vaults that moved between servers carry them. The
+// one item that has one is therefore written here, encrypted the way the
+// Bitwarden clients do it: the item key under the user key, the fields under
+// the item key.
+const ITEM_KEYED = {
+  type: 1, name: "Vaultwarden Item Key", notes: "Encrypted under a key of its own.",
+  login: { username: "item-key@example.com", password: "own-key-password" },
+};
+
+async function createItemKeyed(ca, token) {
+  const { userKey } = credentials();
+  const itemKey = randomBytes(64);
+  const [ik, im] = [itemKey.subarray(0, 32), itemKey.subarray(32)];
+  const auth = { Authorization: `Bearer ${token}` };
+  const profile = await httpsRequest(`${SERVER}/api/accounts/profile`, { ca, headers: auth });
+  const body = {
+    // Current servers want to know whose key the cipher was encrypted for.
+    encryptedFor: JSON.parse(profile.body).id,
+    type: ITEM_KEYED.type, folderId: null, organizationId: null, favorite: false, reprompt: 0,
+    key: encString(itemKey, userKey.subarray(0, 32), userKey.subarray(32)),
+    name: encString(ITEM_KEYED.name, ik, im),
+    notes: encString(ITEM_KEYED.notes, ik, im),
+    login: {
+      username: encString(ITEM_KEYED.login.username, ik, im),
+      password: encString(ITEM_KEYED.login.password, ik, im),
+      uris: [],
+    },
+  };
+  const res = await httpsRequest(`${SERVER}/api/ciphers`, {
+    method: "POST", body: JSON.stringify(body), ca, headers: auth,
+  });
+  if (res.status !== 200) throw new Error(`create item-keyed cipher failed: HTTP ${res.status} ${res.body}`);
+}
+
+// Vaultwarden leaves SSH keys out of the sync answer for clients that do not
+// say they are new enough to know the type, so the snapshot has to say it.
+const CLIENT_HEADERS = { "Bitwarden-Client-Name": "cli", "Bitwarden-Client-Version": "2026.10.1" };
+
+async function takeSnapshot(ca, token) {
+  const get = async (path) => {
+    const res = await httpsRequest(`${SERVER}${path}`, {
+      ca, headers: { Authorization: `Bearer ${token}`, ...CLIENT_HEADERS },
+    });
+    if (res.status !== 200) throw new Error(`${path} failed: HTTP ${res.status}`);
+    return JSON.parse(res.body);
+  };
+  return snapshotFromSync(await get("/api/sync?excludeDomains=true"), {
+    server: SERVER, serverVersion: await get("/api/version"),
+  });
 }
 
 // One item of each type the page renders a dedicated block for.
@@ -167,6 +248,18 @@ const ITEMS = [
   {
     type: 3, name: "Vaultwarden Card",
     card: { number: "4111111111111111", expMonth: "11", expYear: "2031", code: "123" },
+  },
+  {
+    type: 4, name: "Vaultwarden Identity",
+    identity: { firstName: "Ada", lastName: "Lovelace", email: "ada@example.com" },
+  },
+  {
+    type: 5, name: "Vaultwarden SSH Key",
+    sshKey: {
+      privateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nbm90LWEtcmVhbC1rZXk=\n-----END OPENSSH PRIVATE KEY-----",
+      publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyNotReal",
+      keyFingerprint: "SHA256:ExampleFingerprintNotReal",
+    },
   },
 ];
 
@@ -232,6 +325,12 @@ async function main() {
        "--output", OUT, "--session", session);
     bw("logout", "--session", session);
     console.log(`wrote ${OUT}`);
+
+    const token = await accessToken(ca);
+    await createItemKeyed(ca, token);
+    console.log(`  created ${ITEM_KEYED.name} (with an item key)`);
+    writeFileSync(SNAPSHOT_OUT, `${JSON.stringify(await takeSnapshot(ca, token), null, 2)}\n`);
+    console.log(`wrote ${SNAPSHOT_OUT}`);
   } finally {
     if (!process.env.VAULTWARDEN_KEEP) removeContainer();
     rmSync(dir, { recursive: true, force: true });
@@ -240,4 +339,4 @@ async function main() {
 
 if (import.meta.url === `file://${process.argv[1]}`) await main();
 
-export { ITEM_NAMES, KDF, OUT };
+export { ACCOUNT_PASSWORD, ITEM_KEYED, ITEM_NAMES, KDF, OUT, SNAPSHOT_OUT };

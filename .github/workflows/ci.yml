@@ -73,4 +73,5 @@ jobs:
           # Salt and ciphertext are random per export, so a diff is expected and
           # is not a failure. Only the KDF envelope is worth looking at.
           git diff --no-color -- test/fixtures/vaultwarden-argon2id.json \
+            test/fixtures/vaultwarden-snapshot.json \
             | grep -E '^[-+].*"kdf' || echo "KDF envelope unchanged"

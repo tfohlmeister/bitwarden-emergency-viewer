@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 
 export const VAULT_HTML = fileURLToPath(new URL("../vault.html", import.meta.url));
 
-const EXPORTS = ["deriveKeys", "decrypt", "totp", "argon2id", "blake2b", "hPrime"];
+const EXPORTS = [
+  "deriveKeys", "decrypt", "decryptBytes", "totp", "argon2id", "blake2b", "hPrime",
+  "unlockSnapshot", "readSnapshot",
+];
 
 export function readCryptoBlock(path = VAULT_HTML) {
   const html = readFileSync(path, "utf8");

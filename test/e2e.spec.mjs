@@ -141,6 +141,56 @@ test("names the problem when the validation block is missing", async ({ page }) 
   await expect(page.locator("#msg")).not.toContainText("undefined");
 });
 
+test("opens an account snapshot, item keys and folders included", async ({ page }) => {
+  await unlock(page, path("fixtures/snapshot-argon2id.json"), FIXTURE_PASSWORD);
+  await expect(page.locator("#count")).toHaveText("6 entries");
+  await page.locator("#q").fill("infrastructure");
+  await expect(page.locator("#count")).toHaveText("2 of 6 entries");
+
+  // Example Mail carries a key of its own in the fixture.
+  await page.locator("#q").fill("");
+  const entry = page.locator(".entry", { hasText: "Example Mail" });
+  await entry.locator("summary").click();
+  await expect(entry.locator("dd.totp .val")).toHaveText(/^\d{6}$/);
+  const row = entry.locator("dl.f", { hasText: "Password" });
+  await row.locator("button.icon").click();
+  await expect(row.locator("dd .val")).toHaveText("correct-horse-battery-staple");
+});
+
+test("rejects a wrong master password on a snapshot", async ({ page }) => {
+  await page.goto(`file://${VAULT_HTML}`);
+  await page.locator("#file").setInputFiles(path("fixtures/snapshot-pbkdf2.json"));
+  await page.locator("#pw").fill("wrong-password");
+  await page.locator("#go").click();
+  await expect(page.locator("#msg")).toHaveText("Wrong master password.");
+  await expect(page.locator("#result")).toBeHidden();
+});
+
+test("opens what is intact of a damaged snapshot and lists the damaged entry", async ({ page }) => {
+  await unlock(page, path("fixtures/snapshot-damaged.json"), FIXTURE_PASSWORD);
+  await expect(page.locator("#sub")).toContainText("5 entries");
+  await expect(page.locator("#sub")).toContainText("1 could not be read");
+  const damaged = page.locator(".entry", { hasText: "(damaged)" });
+  await expect(damaged).toHaveCount(1);
+  await damaged.locator("summary").click();
+  await expect(damaged.locator(".body")).toContainText("Try another copy");
+});
+
+test("shows every field of the newer item types", async ({ page }) => {
+  await unlock(page, path("fixtures/snapshot-newer-types.json"), FIXTURE_PASSWORD);
+  const bank = page.locator(".entry", { hasText: "Example Bank Account" });
+  await bank.locator("summary").click();
+  await expect(bank.locator("dl.f", { hasText: "Bank Name" })).toContainText("Example Bank");
+  const pin = bank.locator("dl.f", { hasText: "Pin" });
+  await expect(pin.locator("dd .val")).toHaveText("••••••••••");
+  await pin.locator("button.icon").click();
+  await expect(pin.locator("dd .val")).toHaveText("4711");
+
+  const passport = page.locator(".entry", { hasText: "Example Passport" });
+  await passport.locator("summary").click();
+  await expect(passport.locator("dl.f", { hasText: "Surname" })).toContainText("Lovelace");
+});
+
 test("makes no network requests at any point", async ({ page }) => {
   const offSite = [];
   page.on("request", (request) => {

@@ -110,6 +110,63 @@ for (const [name, file] of [["PBKDF2", "pbkdf2.json"], ["Argon2id", "argon2id.js
   });
 }
 
+const byName = (items) =>
+  [...items].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+for (const [name, file] of [["PBKDF2", "snapshot-pbkdf2.json"], ["Argon2id", "snapshot-argon2id.json"]]) {
+  test(`${name} account snapshot decrypts to the original vault`, async () => {
+    const data = fixture(file);
+    assert.ok(data.ciphers.some((c) => c.key), "fixture lost its item-keyed entries");
+    const userKey = await crypto2.unlockSnapshot(FIXTURE_PASSWORD, data);
+    const vault = await crypto2.readSnapshot(data, userKey);
+
+    assert.deepEqual(vault.failed, []);
+    assert.deepEqual(vault.folders, VAULT.folders);
+    assert.deepEqual(vault.items, byName(VAULT.items));
+  });
+
+  test(`${name} account snapshot refuses the wrong password`, async () => {
+    await assert.rejects(
+      () => crypto2.unlockSnapshot("not-the-master-password", fixture(file)),
+      /MAC mismatch/,
+    );
+  });
+}
+
+test("a damaged snapshot entry is counted and the rest still opens", async () => {
+  const data = fixture("snapshot-damaged.json");
+  const vault = await crypto2.readSnapshot(data, await crypto2.unlockSnapshot(FIXTURE_PASSWORD, data));
+
+  assert.equal(vault.failed.length, 1);
+  assert.equal(vault.failed[0].id, VAULT.items[1].id);
+  assert.match(vault.failed[0].error, /MAC mismatch/);
+  // The damaged entry is missing, and so is the one in the trash.
+  assert.deepEqual(vault.items, byName(VAULT.items.filter((_, i) => i !== 1)));
+});
+
+test("a field that is not an EncString fails its entry instead of showing as the value", async () => {
+  const data = fixture("snapshot-pbkdf2.json");
+  const router = data.ciphers.find((c) => c.id === VAULT.items[1].id);
+  router.login.password = "2.!damaged|ciphertext|mac";
+  const vault = await crypto2.readSnapshot(data, await crypto2.unlockSnapshot(FIXTURE_PASSWORD, data));
+
+  assert.equal(vault.failed.length, 1);
+  assert.equal(vault.failed[0].name, "Example Router");
+  assert.ok(!vault.items.some((i) => i.name === "Example Router"));
+});
+
+test("a damaged entry keeps its name when the name still opens", async () => {
+  const data = fixture("snapshot-damaged.json");
+  const vault = await crypto2.readSnapshot(data, await crypto2.unlockSnapshot(FIXTURE_PASSWORD, data));
+  // The fixture damages the name itself, so there is nothing to keep.
+  assert.equal(vault.failed[0].name, null);
+});
+
+test("a snapshot of an unknown format version is refused by name", async () => {
+  const data = { ...fixture("snapshot-pbkdf2.json"), version: 2 };
+  await assert.rejects(() => crypto2.unlockSnapshot(FIXTURE_PASSWORD, data), /version 1/);
+});
+
 test("progress is reported for Argon2id and reaches 1", async () => {
   const data = fixture("argon2id.json");
   const seen = [];
@@ -153,6 +210,24 @@ test("totp reproduces the RFC 6238 test vectors", async () => {
       Date.now = () => seconds * 1000;
       assert.equal((await crypto2.totp(secret, 30, 8)).code, expected, `T=${seconds}`);
     }
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("totp honours the algorithm of an otpauth:// URI (RFC 6238 vectors)", async () => {
+  const realNow = Date.now;
+  Date.now = () => 59 * 1000;
+  try {
+    for (const [algorithm, secret, expected] of [
+      ["SHA256", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA", "46119246"],
+      ["SHA512", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+        + "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA", "90693936"],
+    ]) {
+      const uri = `otpauth://totp/x?secret=${secret}&digits=8&algorithm=${algorithm}`;
+      assert.equal((await crypto2.totp(uri)).code, expected, algorithm);
+    }
+    await assert.rejects(() => crypto2.totp("otpauth://totp/x?secret=GEZA&algorithm=MD5"), /MD5/);
   } finally {
     Date.now = realNow;
   }

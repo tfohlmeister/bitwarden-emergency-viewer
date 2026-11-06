@@ -1,7 +1,7 @@
 # Bitwarden Emergency Viewer
 
-One HTML file that opens a password-protected Bitwarden or Vaultwarden export
-with nothing but a browser. No server, no account, no network, nothing to
+One HTML file that opens a password-protected Bitwarden or Vaultwarden export,
+or an account snapshot (below), with nothing but a browser. No server, no account, no network, nothing to
 install. Put it in the same backup as your export and you can read your
 passwords on any machine that has a browser and your master password.
 
@@ -39,6 +39,36 @@ are looking for. This one is built for the moment when you do not:
    type the master password.
 
 There is a [demo][demo] with an invented vault (master password `demo`).
+
+### Or: an account snapshot
+
+Writing a password-protected export means unlocking the vault, so whatever
+produces it needs the master password. An automated backup job then holds the
+one secret that opens everything. The account snapshot avoids that: it is the
+encrypted vault exactly as the server hands it to every client at sync,
+trimmed to the personal vault, and producing it needs only an API login,
+never the master password. Opening it needs nothing but the master password,
+the same as the export.
+
+[`tools/snapshot.mjs`](tools/snapshot.mjs) turns a `/api/sync` answer into
+one and documents the format:
+
+```json
+{
+  "format": "bitwarden-account-snapshot", "version": 1,
+  "created": "…", "server": "…", "serverVersion": "…",
+  "salt": "you@example.com",
+  "kdfType": 1, "kdfIterations": 6, "kdfMemory": 32, "kdfParallelism": 4,
+  "userKey": "2.…",
+  "folders": [{ "id": "…", "name": "2.…" }],
+  "ciphers": [{ "id": "…", "type": 1, "key": null, "name": "2.…", "login": { … } }]
+}
+```
+
+`salt`, the KDF and `userKey` come from `userDecryption.masterPasswordUnlock`
+of the sync answer. Fetch it with a `Bitwarden-Client-Version` header:
+Vaultwarden leaves SSH keys out for clients that do not announce a version
+that knows them.
 
 [demo]: https://tfohlmeister.github.io/bitwarden-emergency-viewer/
 
@@ -88,6 +118,20 @@ The entire vault is one `EncString` under `data`: AES-256-CBC with an
 HMAC-SHA256 over `iv || ciphertext`. The MAC is verified **before** decrypting,
 so a wrong password produces a clear error instead of plausible garbage.
 
+An account snapshot derives the same master key, salted with the account's
+salt (its email address), and uses it to unwrap the user key:
+
+```
+userKey = decrypt(userKey) under encKey/macKey     64 bytes: enc | mac
+itemKey = decrypt(cipher.key) under userKey        where a cipher has one
+```
+
+Every field of a cipher is its own `EncString` under the item key, or the user
+key when there is none, except ids and dates. The user key's MAC is the
+password check. Entries are opened one at a time, so a damaged one is counted
+and listed by name (where its name still opens) instead of costing the whole
+vault.
+
 Two details are easy to get wrong and are worth naming: the base64 salt goes in
 as the characters of the string, not as decoded bytes, and Argon2id hashes that
 string with SHA-256 first while PBKDF2 does not.
@@ -116,13 +160,16 @@ Four layers, weakest claim first:
 | RFC 9106 test vector | Argon2id is not Argon2id |
 | Differential against [`@noble/hashes`][noble] | agreement with an independent implementation, across the parameter space |
 | Fixtures built by Node's crypto and `@noble/hashes` | the page agreeing only with itself |
-| **A real export from a real Vaultwarden** | our reading of Bitwarden's format being wrong |
+| **A real export and a real snapshot from a real Vaultwarden** | our reading of Bitwarden's format being wrong |
 
 That last one is the one that counts. `tools/vaultwarden-fixture.mjs` starts a
 throwaway Vaultwarden in Docker, registers an account with Argon2id, fills it
-through the **official Bitwarden CLI** and lets that CLI write the export. CI
-runs it on every push and once a week, so a format change upstream shows up
-here instead of during a recovery.
+through the **official Bitwarden CLI**, lets that CLI write the export, and
+takes a snapshot of the same account from the server's sync answer. One entry
+with a key of its own is written through the API, because no client creates
+item keys against a Vaultwarden that does not advertise them. CI runs it on
+every push and once a week, so a format change upstream shows up here instead
+of during a recovery.
 
 ```bash
 npm run fixture:vaultwarden   # needs Docker and openssl
@@ -134,9 +181,12 @@ BLAKE2b is checked against OpenSSL, and TOTP against the RFC 6238 vectors.
 
 ## Limits
 
-- Password-protected exports only (`"encrypted": true`,
-  `"passwordProtected": true`). An account-key-encrypted export is tied to a
-  vault you no longer have, which defeats the purpose.
+- Password-protected exports (`"encrypted": true`, `"passwordProtected": true`)
+  and account snapshots only. An account-key-encrypted export is tied to a
+  vault you no longer have, which defeats the purpose; the snapshot carries
+  its wrapped user key and does not have that problem.
+- Personal vault only. Organization items need the account's private key and
+  are left out of the snapshot, as the CLI leaves them out of a personal export.
 - JavaScript is required.
 - Only the item types Bitwarden currently defines are rendered. Anything else
   shows up in the list but has no fields.

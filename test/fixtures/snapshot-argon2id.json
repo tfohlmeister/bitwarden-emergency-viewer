@@ -1,0 +1,116 @@
+{
+  "format": "bitwarden-account-snapshot",
+  "version": 1,
+  "created": "2026-11-06T02:00:00Z",
+  "server": "https://vault.example.com",
+  "serverVersion": "1.37.5",
+  "salt": "ada@example.com",
+  "kdfType": 1,
+  "kdfIterations": 3,
+  "kdfMemory": 16,
+  "kdfParallelism": 4,
+  "userKey": "2.QpJkawndfH2l21sxa9G0wQ==|NvzKSGE6HQsqsqbObZ2k8mPK3fw0c7SKzkeRWuznOdyIzAj/mYrplJO2ERxLzFc2nEyhqTt576uBFlQBTnYUJC5uQeQRjCjvPdJ0DblOB1I=|8HfW1GpNtjHIMIU56hs2I+prF/XsNuOlqaznOkmLIQ4=",
+  "folders": [
+    {
+      "id": "6f1c9f5e-0000-4000-8000-000000000001",
+      "name": "2.ML58lC8GvRg88qxMz8rqVw==|ayu8cRdjOm5I9Xku/ZL11Q==|7HLH3iTBJEv5BIlrAmJJH/xBqBe/kBoH7cwzpeGyVQs="
+    }
+  ],
+  "ciphers": [
+    {
+      "id": "a0000000-0000-4000-8000-000000000001",
+      "type": 1,
+      "name": "2.9htPW2eSbr5PagxejVGbzQ==|iOuJOz6vT3KOd9iULSrugg==|1WyU3kPUxQpFd64JVarX/ZJkxSRFzD4Qd6a8ecSFMCw=",
+      "folderId": "6f1c9f5e-0000-4000-8000-000000000001",
+      "notes": "2.4lETc4KbJDGqnhQjaA9zKA==|1NLFgOnbko5jYwgE89jL4v8RD+UDkW7ij/G1IgDwFz/Gkz3MTk9mE+LkjwuJJrbMqbY+qOP01/DVq7ibq3fEQRVSTC1GCZ8oNjH7y/KPHH4=|oUK4ru8GCk6CgRdDmScCrXjcPxUoIyR/EaCuUf+oUxY=",
+      "login": {
+        "username": "2.T4jSFsiT3Cal6TLSbxZxmA==|w9e0IEY2wdgg7GBLgGb1KA==|c+D8s/J5N7NzQOC5ZdPCDP13uVoAdo/VciackUgKCQ0=",
+        "password": "2.vpBhOL3SKfpNjOS+BZCOZA==|ILXpehpmS9UKJtTXoUbQVK4XrHBWjxN6N8mQqD+ZASo=|131HTGAei+VmR2zBF5Ee6+IOEZsercc6/yb5h9WZr+w=",
+        "totp": "2.sf5Ac8hhiHrcr0sFSRct9Q==|KGAhoKZI8YgXbnBc45Mcb5m5hB57sOEdXVXQ+tzW5d8=|Lz/vy1TIOiLg19IhSgCcFwCYBGG4iA8Rllluhe3eWQk=",
+        "uris": [
+          {
+            "uri": "2.O44BH5+t8Szm/chuxKDY3w==|YHgCpBIvoMH0Ckwv/aYvs+mKulu8MlXFHYvq8o5dhfQ=|bsZEuvhWPr20Y3mcyH+1y4O1FEeoUx3R2hho7NqkTwQ="
+          }
+        ]
+      },
+      "fields": [
+        {
+          "name": "2.PAGvB4WcljlNJoZu2hfsDA==|Y97IApuZOsOh8FU5AjtY4w==|Nr6kClfqQ5cmga65AAeLi0E83Yfl2pOVp/ofKQeMrXU=",
+          "value": "2.ab0o674WXtNOrZEVXZ46Ow==|Agmizy7pQmFiYeKgP4ePKw==|WprgeplgTdJ8MKhZsOa3tR+5oIZNi6gvqXXpf2z1880=",
+          "type": 0
+        },
+        {
+          "name": "2.7CFp1lcik7sEALuOZR1McQ==|Tzvtek84k6/Ac71vUKkjBQ==|mcpikMfZ+upRueXoYVnu5maYf0tetF3uz2B8NoMxX/c=",
+          "value": "2.YuXDk115O9zgecqCZRoW4w==|3L/qmN5+u9IcgGR09GV6mA==|HnKjr4OPtZ1kRdV2kEVst3E8ZkRZvESeot8I7E1MnxU=",
+          "type": 1
+        }
+      ],
+      "key": "2.RfDTIsCpoVp7ElfukOIC3g==|rKwmzWqixDAShN1FvJOHppIc6LRoUjBddU7Tgly1orY75389RBy1942EpAMRcg0jsumKbMBjYRFtN5r3BkIRqXq9rnSCFE3YJKvtfa6+7Ts=|9wAcRflm0SRMiY8hHMHYanxvaDElVJsxeUTNVJdT4pc="
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000002",
+      "type": 1,
+      "name": "2.ktLRNRaojffkcqDxj5MQxw==|VYc851367MCGIx4hww8IqQ==|C+bWNwBmp3/EpFSZ+tlI8zynGNWuBanExDrjqBQUINU=",
+      "login": {
+        "username": "2.B6T2UYs+iG8ecIbq4s+W8Q==|EzQrRIh+SVp4UdELafusYw==|0PYKgrypN7b0yHqkn1FzOdEVsIKSuqROeEhtP6gYso0=",
+        "password": "2.ry++lUrm0vnipXuYs1D8TA==|fo/uiHPKw91TXIxBSBmlZBJf6sZTnz/yYr34TZMI3CY=|KnMsh4y9UqhfOCnG0woTFAiR/wESbHesa3V7pwFhqqE=",
+        "uris": [
+          {
+            "uri": "2.rl23pq3UpN3TN01KuP/TYg==|gEraA3FtTSBD6Np/CQwF9u/u58eQkoEztSk90eUR3Is=|nCU8KEE1JD+fLBvPyPVu1Wn+5iyFYqq0jP4DE09Rk3Y="
+          }
+        ]
+      },
+      "key": null
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000003",
+      "type": 3,
+      "name": "2.AVxpSJ1QsYkAKVzQabOWuw==|2oB1/6PKC2vw0XGa7r46Tg==|MjDA7NoPMrfWzcDnJoT7oIOCmIzyCVK4UObEmV+1MBU=",
+      "card": {
+        "number": "2.lqGhFEYOahysy2vc28kEHQ==|MsWqxRbrxJJu8m9FurX3wVhnS6SpU/FDQ/nouyrW43A=|L3I0qTzKgH4fsR0IyR2P4BKYBqBA30feM37Q52A6eTo=",
+        "expMonth": "2.YcMKVT0BSn7sCFLfYZOLiA==|+4f2rH1vGFuhd87we53lhQ==|IZWV5rDJ9TsFNkIjFLsN3pdeP13Xyso+z8AVFWgRPD0=",
+        "expYear": "2.kc77t10BD5uuteO1PTLMwg==|tVpXucCppEZhUydicBB+HA==|3TOLVJNBrIJVUz0/GoMh2Ex7IooxXgEHteTNaXeVs/o=",
+        "code": "2./3Zrap7wp9emAaWhQzLOKQ==|XaBA0URYBA95fSNOhH7p2g==|W06xpjnb65C+QqvIgxsC8croZUA5J5c+vhqknF0ueDg="
+      },
+      "key": null
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000006",
+      "type": 3,
+      "name": "2.arN4TDApeaNzOfRXWoaZrg==|dl7RhAhZhCCbAuPyB7rBLnRlCjLiqDJqrS86xnSQKfQ=|xrAayg+idip9DcceGxX7E2HvjBRxFTEDeqlqd80rhZE=",
+      "card": {
+        "number": "2.jwUaWkqxcYv/80gyUvu4EA==|QGGxaBgArF93o/LxzT+ARlcTyI4ToC2XMhRubuC44rc=|qpcyDTKvvMsHMBRerbDxrRkG/Zk8Ynp7AQbLbRotpJU="
+      },
+      "key": null
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000004",
+      "type": 4,
+      "name": "2.MUuamYhxxnVFtoo3O5yJaA==|fYSrawzGikA8JsdshqaYdpwWYaE3gkXFMO8EJhyH4oQ=|9HJYdq/DX7V2IAZ1FKwpmDBvFA5iy6RjKhfMCoa1yAA=",
+      "identity": {
+        "firstName": "2.Px0XtnoTu57Qsch4ExTctw==|F38OS4VzLCPhVNjwhcitiA==|LJtIqfufPz4BDLwfbz5nxXlJKXHPDZnvEMDvzgtgZyY=",
+        "lastName": "2.29WH7PbFV2Kj/I0KRd1uHg==|QS8W9d4JFY0t6FX6EmmBCQ==|PlfSdecP1F/t+dh5s5H0J7JVb+P/M9vtjyVgZZzVdSs=",
+        "email": "2.WkjH6c0A73QcmbTQ9YoOLA==|K9odmVYB8zwG8BwZVZaRIg==|SYGmt8pKAqnxdrLkeR0WKqaleEWhjoBTIhOS7gjH/XE=",
+        "phone": "2.r5m19s//E8y36RZtjgQ0qw==|hLwJ+vUulfOkVuSOb7zjgA==|evgo7KyU/0P0IGT2FWAo43cYRCeRPfKdUWOtvX0pcss=",
+        "address1": "2.10AYG6p0ExJiAHHDnz5XbA==|B+lQfXSy9KAUIcae45tD7GKH9P1WnoYpChHf50EdtRI=|TvmAxanDiUgpKNpbHr+teVnDJmrPUtTppcg6NifudSw=",
+        "city": "2.glprA66UjjH3gaQAlwUn8Q==|UgRAkSuMMeiFHMEyT+BNng==|8gznHa2wsGzcwEpJ1Owpx1IHzp2qAffX/pCqCuOgoSU=",
+        "postalCode": "2.BsEi4/U1sO2hFSIiTxVSlg==|gIH9yMM9kNXxOC3u5KKx0g==|3AcVjCXmK+/hIR15uBQ3NaRrbXCSETQH8M+QOolpUZw=",
+        "country": "2.6JoAJzxUVzhreuqMo5dKlQ==|1JqOrhloD/pRm1hpOZjmDA==|1za8LCHX+lh8XWZpYO5KGIc10eFyXlDEOprAZwl1Grk=",
+        "passportNumber": "2.RZEAmnYFn+clvfJ/EQgnfQ==|ik4cNRM5F1N+sbfxDmBtPA==|rrc8QsJJlP2qyY8CfPSkqw6i/XbT8uZhL/f1LCj6+dM="
+      },
+      "key": null
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000005",
+      "type": 5,
+      "name": "2.9gzVNDMrvEZ6wubnMUjCBA==|wiLtUtxm6L7KqTuIIfktUg==|jWjRAdvlBlgk9WbJEkmofIDYN12sbP36lGPtmqPyUes=",
+      "folderId": "6f1c9f5e-0000-4000-8000-000000000001",
+      "sshKey": {
+        "privateKey": "2.X/2fWLY9l/HAgOkaQtoVCw==|yvDnq73L9SmpU6HNagNTv5TtpMVd5nKaPxVVgWiRsd9ShmCK7Ft0X0NY2I59iZxCMVmeuEca0o9AJ9rE61u5QtlSdENCyAPjdB1o4gxcMsKIT64QvG1nQb+e3HeiPqtp|yodP2NzsfOAGPExRi7266aKqYYCk61g6/tzdnhA4EPw=",
+        "publicKey": "2.XNquwEM2KFbWD20jZmD9uA==|2tNql0sOjIcluNd+voTJCkcB2B+hq61gnrLeK7PCdrwuup2Ihahz/OkMRxeJA76OVZOUnI5cx+sW2Ha1FMlUAQ==|qj61Kka/tEOtRmFWOzODaA+j8nfiuqd6DvGhdmh2K7k=",
+        "keyFingerprint": "2.RslzlCSa3l2ix+D2mPQk4g==|DT1oByUuQN/7+qNplHukAcbeosYK93hIwqi9l1oq32f+yJmN9Z3I5IgfkQ/lNfwu|g2RMEPhozqjsk3D5t4FvwfV21w1tSgPsl3mAPQX6uhs="
+      },
+      "key": "2.4F1zBoIu/Xm3XNmyf60Uqw==|FP1vmES/3UdUaTomGPeuJJXSpNRiNBQGeBdUk1wHhCcFWjFcXo4/M02p/RDp0tYPbjMR6JMnHzuvuld05d/aqm02ef3SVacgVVkRKQVSqFI=|Oi3IHCwmOJ8gkRoFf2xE+QfLdWsBkjxTk2KiPajVpTg="
+    }
+  ]
+}
