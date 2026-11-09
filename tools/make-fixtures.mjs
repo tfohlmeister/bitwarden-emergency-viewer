@@ -5,7 +5,10 @@
 // rather than the page agreeing with itself.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createCipheriv, createHmac, pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
+import {
+  constants, createCipheriv, createHmac, generateKeyPairSync, pbkdf2Sync, publicEncrypt, randomBytes,
+  randomUUID,
+} from "node:crypto";
 import { argon2id } from "@noble/hashes/argon2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
@@ -91,7 +94,7 @@ function encryptFields(value, keys, name = "") {
 export function buildSnapshot(vault, password, kdf, { email = "ada@example.com", withItemKey = [] } = {}) {
   const userKeyRaw = randomBytes(64);
   const userKey = splitKey(userKeyRaw);
-  return {
+  const snapshot = {
     format: "bitwarden-account-snapshot",
     version: 1,
     created: "2026-11-06T02:00:00Z",
@@ -105,6 +108,53 @@ export function buildSnapshot(vault, password, kdf, { email = "ada@example.com",
       if (!withItemKey.includes(item.id)) return { ...encryptFields(item, userKey), key: null };
       const itemKeyRaw = randomBytes(64);
       return { ...encryptFields(item, splitKey(itemKeyRaw)), key: encString(itemKeyRaw, userKey) };
+    }),
+  };
+  // Not part of the file; buildMultiSnapshot wraps organization keys with it.
+  Object.defineProperty(snapshot, "userKeyRaw", { value: userKeyRaw });
+  return snapshot;
+}
+
+// A version 2 snapshot: several accounts, each with its own password, KDF and
+// RSA key pair, and organizations whose key is wrapped for each member with
+// RSA-OAEP over SHA-1, as the Bitwarden clients write it ("4.<ciphertext>").
+// accounts: [{ id, email, password, kdf, vault }]
+// organizations: [{ id, name, members: [account index], vault, withItemKey }]
+export function buildMultiSnapshot(accounts, organizations) {
+  const built = accounts.map(({ id, email, password, kdf, vault, withItemKey = [] }) => {
+    const single = buildSnapshot(vault, password, kdf, { email, withItemKey });
+    const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    return {
+      publicKey,
+      userKey: single.userKeyRaw,
+      account: {
+        id, salt: email, kdfType: kdf.kdfType, kdfIterations: kdf.kdfIterations,
+        kdfMemory: kdf.kdfMemory ?? null, kdfParallelism: kdf.kdfParallelism ?? null,
+        userKey: single.userKey,
+        privateKey: encString(privateKey.export({ type: "pkcs8", format: "der" }), splitKey(single.userKeyRaw)),
+        folders: single.folders,
+        ciphers: single.ciphers,
+      },
+    };
+  });
+  return {
+    format: "bitwarden-account-snapshot",
+    version: 2,
+    created: "2026-11-09T02:00:00Z",
+    server: "https://vault.example.com",
+    serverVersion: "1.37.5",
+    accounts: built.map((b) => b.account),
+    organizations: organizations.map(({ id, name, members, vault, withItemKey = [] }) => {
+      const orgKeyRaw = randomBytes(64);
+      const keys = Object.fromEntries(members.map((m) => [built[m].account.id, `4.${publicEncrypt({
+        key: built[m].publicKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha1",
+      }, orgKeyRaw).toString("base64")}`]));
+      const ciphers = vault.items.map(({ folderId, ...item }) => {
+        if (!withItemKey.includes(item.id)) return { ...encryptFields(item, splitKey(orgKeyRaw)), key: null };
+        const itemKeyRaw = randomBytes(64);
+        return { ...encryptFields(item, splitKey(itemKeyRaw)), key: encString(itemKeyRaw, splitKey(orgKeyRaw)) };
+      });
+      return { id, name, keys, ciphers };
     }),
   };
 }
@@ -248,6 +298,41 @@ const MORE_FIELDS = {
   ],
 };
 
+// Two accounts and two organizations: "Example Family" has both as members,
+// "Example Club" only the first. Invented data, like everything here.
+const SECOND_PASSWORD = "second-master-password";
+const ACCOUNTS = [
+  { id: "e0000000-0000-4000-8000-000000000001", email: "ada@example.com" },
+  { id: "e0000000-0000-4000-8000-000000000002", email: "grace@example.com" },
+];
+const SECOND_VAULT = {
+  folders: [],
+  items: [{
+    id: "e1000000-0000-4000-8000-000000000001", type: 1, name: "Grace Mail",
+    login: { username: "grace@example.com", password: "grace-mail-password" },
+  }],
+};
+const FAMILY = {
+  folders: [],
+  items: [
+    { id: "f0000000-0000-4000-8000-000000000001", type: 1, name: "Family Streaming",
+      login: { username: "family@example.com", password: "family-streaming-password",
+               uris: [{ uri: "https://stream.example.com" }] } },
+    { id: "f0000000-0000-4000-8000-000000000002", type: 2, name: "Family Wifi",
+      notes: "Network: Example\nPassword: family-wifi-password", secureNote: { type: 0 } },
+  ],
+};
+const CLUB = {
+  folders: [],
+  items: [{ id: "f1000000-0000-4000-8000-000000000001", type: 1, name: "Club Locker",
+            login: { username: "ada", password: "club-locker-code" } }],
+};
+const ORGANIZATIONS = [
+  { id: "0a000000-0000-4000-8000-000000000001", name: "Example Family", members: [0, 1],
+    vault: FAMILY, withItemKey: [FAMILY.items[0].id] },
+  { id: "0a000000-0000-4000-8000-000000000002", name: "Example Club", members: [0], vault: CLUB },
+];
+
 const FIXTURE_PASSWORD = "fixture-master-password";
 const DEMO_PASSWORD = "demo";
 
@@ -311,8 +396,27 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     ],
   }, FIXTURE_PASSWORD, PBKDF2));
 
+  // Two accounts with different KDFs and their organizations.
+  const multiAccounts = () => [
+    { ...ACCOUNTS[0], password: FIXTURE_PASSWORD, kdf: ARGON2ID, vault: VAULT, withItemKey: ITEM_KEYED },
+    { ...ACCOUNTS[1], password: SECOND_PASSWORD, kdf: PBKDF2, vault: SECOND_VAULT },
+  ];
+  write("test/fixtures/snapshot-multi.json", buildMultiSnapshot(multiAccounts(), ORGANIZATIONS));
+
+  // The family's key for the second account is damaged: its personal vault has
+  // to open anyway, and the organization has to be named as unreadable.
+  const bentOrg = buildMultiSnapshot(multiAccounts(), ORGANIZATIONS);
+  const family = bentOrg.organizations[0];
+  const wrapped = Buffer.from(family.keys[ACCOUNTS[1].id].slice(2), "base64");
+  wrapped[0] ^= 0xff;
+  family.keys[ACCOUNTS[1].id] = `4.${wrapped.toString("base64")}`;
+  write("test/fixtures/snapshot-multi-damaged-org.json", bentOrg);
+
   write("test/fixtures/more-fields.json", buildExport(MORE_FIELDS, FIXTURE_PASSWORD, PBKDF2));
   write("test/fixtures/snapshot-more-fields.json", buildSnapshot(MORE_FIELDS, FIXTURE_PASSWORD, PBKDF2));
 }
 
-export { VAULT, MORE_FIELDS, PBKDF2, ARGON2ID, ARGON2ID_DEFAULTS, FIXTURE_PASSWORD, DEMO_PASSWORD };
+export {
+  VAULT, MORE_FIELDS, PBKDF2, ARGON2ID, ARGON2ID_DEFAULTS, FIXTURE_PASSWORD, DEMO_PASSWORD,
+  SECOND_PASSWORD, ACCOUNTS, SECOND_VAULT, FAMILY, CLUB, ORGANIZATIONS,
+};

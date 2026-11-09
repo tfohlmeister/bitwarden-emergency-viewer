@@ -47,30 +47,44 @@ There is a [demo][demo] with an invented vault (master password `demo`).
 Writing a password-protected export means unlocking the vault, so whatever
 produces it needs the master password. An automated backup job then holds the
 one secret that opens everything. The account snapshot avoids that: it is the
-encrypted vault exactly as the server hands it to every client at sync,
-trimmed to the personal vault, and producing it needs only an API login,
-never the master password. Opening it needs nothing but the master password,
-the same as the export.
+encrypted vault exactly as the server hands it to every client at sync, and
+producing it needs only an API login per account, never a master password.
+Opening it needs nothing but the master password, the same as the export.
 
-[`tools/snapshot.mjs`](tools/snapshot.mjs) turns a `/api/sync` answer into
+One file can hold several accounts (a household's) and the items of the
+organizations they share. Each account opens with its own master password; an
+organization's items open with the password of any member whose account is in
+the file. The page asks which account to open when there is more than one.
+
+[`tools/snapshot.mjs`](tools/snapshot.mjs) turns `/api/sync` answers into
 one and documents the format:
 
 ```json
 {
-  "format": "bitwarden-account-snapshot", "version": 1,
+  "format": "bitwarden-account-snapshot", "version": 2,
   "created": "…", "server": "…", "serverVersion": "…",
-  "salt": "you@example.com",
-  "kdfType": 1, "kdfIterations": 6, "kdfMemory": 32, "kdfParallelism": 4,
-  "userKey": "2.…",
-  "folders": [{ "id": "…", "name": "2.…" }],
-  "ciphers": [{ "id": "…", "type": 1, "key": null, "name": "2.…", "login": { … } }]
+  "accounts": [{
+    "id": "…", "salt": "you@example.com",
+    "kdfType": 1, "kdfIterations": 6, "kdfMemory": 32, "kdfParallelism": 4,
+    "userKey": "2.…", "privateKey": "2.…",
+    "folders": [{ "id": "…", "name": "2.…" }],
+    "ciphers": [{ "id": "…", "type": 1, "key": null, "name": "2.…", "login": { … } }]
+  }],
+  "organizations": [{
+    "id": "…", "name": "Family",
+    "keys": { "<account id>": "4.…" },
+    "ciphers": [{ "id": "…", "type": 1, "key": null, "name": "2.…", "login": { … } }]
+  }]
 }
 ```
 
 `salt`, the KDF and `userKey` come from `userDecryption.masterPasswordUnlock`
-of the sync answer. Fetch it with a `Bitwarden-Client-Version` header:
-Vaultwarden leaves SSH keys out for clients that do not announce a version
-that knows them.
+of each account's sync answer, `privateKey` and the organization keys from its
+`profile`. Fetch it with a `Bitwarden-Client-Version` header: Vaultwarden
+leaves SSH keys out for clients that do not announce a version that knows them.
+
+Version 1, a single account with its personal vault at the top level (no
+`accounts`, no `organizations`), still opens.
 
 [demo]: https://tfohlmeister.github.io/bitwarden-emergency-viewer/
 
@@ -128,19 +142,29 @@ userKey = decrypt(userKey) under encKey/macKey     64 bytes: enc | mac
 itemKey = decrypt(cipher.key) under userKey        where a cipher has one
 ```
 
+An organization's items sit under the organization key, which reaches each
+member wrapped with that member's RSA public key:
+
+```
+privateKey = decrypt(account.privateKey) under userKey    PKCS#8, RSA-2048
+orgKey     = RSA-OAEP(SHA-1) decrypt of keys[account.id]   EncString type 4
+itemKey    = decrypt(cipher.key) under orgKey              where a cipher has one
+```
+
 Every field of a cipher is its own `EncString` under the item key, or the user
 key when there is none, except ids and record timestamps such as
 `revisionDate`; a date the owner typed in, like a passport's expiry, is
 encrypted too. The user key's MAC is the
 password check. Entries are opened one at a time, so a damaged one is counted
 and listed by name (where its name still opens) instead of costing the whole
-vault.
+vault; an organization whose key does not open is listed as one damaged row
+with its size, and the rest still opens.
 
 Two details are easy to get wrong and are worth naming: the base64 salt goes in
 as the characters of the string, not as decoded bytes, and Argon2id hashes that
 string with SHA-256 first while PBKDF2 does not.
 
-WebCrypto provides PBKDF2, HKDF, AES and HMAC. It has no Argon2 and no BLAKE2b,
+WebCrypto provides PBKDF2, HKDF, AES, HMAC and RSA-OAEP. It has no Argon2 and no BLAKE2b,
 so both are implemented in the file. Argon2id at Bitwarden's defaults (32 MiB,
 6 passes) takes roughly 3 to 5 seconds in a current browser; the page shows
 progress while it runs.
@@ -169,9 +193,11 @@ Four layers, weakest claim first:
 That last one is the one that counts. `tools/vaultwarden-fixture.mjs` starts a
 throwaway Vaultwarden in Docker, registers an account with Argon2id, fills it
 through the **official Bitwarden CLI**, lets that CLI write the export, and
-takes a snapshot of the same account from the server's sync answer. One entry
-with a key of its own is written through the API, because no client creates
-item keys against a Vaultwarden that does not advertise them. CI runs it on
+takes a snapshot from the server's sync answers: of that account, of a second
+one with PBKDF2, and of an organization both belong to, whose items the CLI
+writes under the organization key it unwrapped itself. One entry with a key of
+its own goes in through the API for each of them, because whether the CLI
+writes item keys depends on what the server advertises. CI runs it on
 every push and once a week, so a format change upstream shows up here instead
 of during a recovery.
 
@@ -189,8 +215,8 @@ BLAKE2b is checked against OpenSSL, and TOTP against the RFC 6238 vectors.
   and account snapshots only. An account-key-encrypted export is tied to a
   vault you no longer have, which defeats the purpose; the snapshot carries
   its wrapped user key and does not have that problem.
-- Personal vault only. Organization items need the account's private key and
-  are left out of the snapshot, as the CLI leaves them out of a personal export.
+- An export holds the personal vault only, as the CLI writes it. Organization
+  items are in a version 2 snapshot only.
 - JavaScript is required.
 - Passkeys are listed by site and user name, so you know which login needs
   another way in. They cannot be used from this page, and their private keys

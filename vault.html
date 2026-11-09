@@ -35,7 +35,7 @@
     border-radius: 10px; padding: 20px; margin-bottom: 16px;
   }
   label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-  input[type=password], input[type=text], input[type=search] {
+  input[type=password], input[type=text], input[type=search], select {
     width: 100%; padding: 9px 11px; font-size: 15px; color: var(--ink);
     background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
   }
@@ -65,6 +65,7 @@
   #drop.over { border-color: var(--accent); color: var(--accent); }
   #drop strong { color: var(--ink); display: block; margin-bottom: 3px; }
 
+  #accounts { margin-top: 14px; }
   .row { display: flex; gap: 10px; align-items: flex-end; margin-top: 14px; }
   .row > div { flex: 1; }
   .msg { margin-top: 12px; font-size: 14px; }
@@ -114,6 +115,11 @@
       vault-export.json from the unpacked archive
     </div>
     <input type="file" id="file" accept=".json,application/json" class="hidden">
+
+    <div id="accounts" class="hidden">
+      <label for="account">Account (to open another one afterwards, reload this page)</label>
+      <select id="account"></select>
+    </div>
 
     <div class="row">
       <div>
@@ -166,6 +172,13 @@
 //   itemKey = decrypt(cipher.key) under the user key, where a cipher has one
 // and every field of a cipher is its own EncString under the item key, or the
 // user key when there is none.
+//
+// Version 2 of the snapshot holds several accounts and the items of their
+// organizations. An organization's items sit under the organization key, which
+// reaches each member wrapped with that member's RSA public key:
+//   privateKey = decrypt(account.privateKey) under the user key: PKCS#8 RSA
+//   orgKey     = RSA-OAEP-decrypt(organization.keys[account.id]): 64 bytes
+//   itemKey    = decrypt(cipher.key) under the organization key, where it has one
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -648,15 +661,50 @@ async function importKey(raw) {
   };
 }
 
-// The password check of a snapshot. Its MAC is the one a wrong password fails;
-// everything after it is a question of whether the file is intact.
-async function unlockSnapshot(password, snapshot, onProgress = null) {
-  if (snapshot.format !== SNAPSHOT_FORMAT || snapshot.version !== 1) {
-    throw new Error(`Not a version 1 ${SNAPSHOT_FORMAT}`);
+// The accounts of a snapshot. Version 1 is a single account at the top level.
+function snapshotAccounts(snapshot) {
+  if (snapshot.format !== SNAPSHOT_FORMAT || ![1, 2].includes(snapshot.version)) {
+    throw new Error(`Not a version 1 or 2 ${SNAPSHOT_FORMAT}`);
   }
-  if (!snapshot.userKey) throw new Error("Snapshot has no userKey");
-  const masterKeys = await deriveKeys(password, snapshot, onProgress);
-  return importKey(await decryptBytes(snapshot.userKey, masterKeys));
+  if (snapshot.version === 1) return [{ ...snapshot, id: null }];
+  if (!Array.isArray(snapshot.accounts) || !snapshot.accounts.length) {
+    throw new Error("Snapshot has no accounts");
+  }
+  return snapshot.accounts;
+}
+
+// The organizations an account holds a key for, so it can open their items.
+function accountOrganizations(snapshot, account) {
+  return (snapshot.organizations || []).filter((o) => account.id && o.keys?.[account.id]);
+}
+
+// The password check of a snapshot, for one of its accounts. The user key's
+// MAC is the one a wrong password fails; everything after it is a question of
+// whether the file is intact. The keys remember their account, so readSnapshot
+// opens that account's part and the organizations it is a member of.
+async function unlockSnapshot(password, snapshot, onProgress = null, account = 0) {
+  const target = snapshotAccounts(snapshot)[account];
+  if (!target) throw new Error(`Snapshot has no account ${account}`);
+  if (!target.userKey) throw new Error("Snapshot has no userKey");
+  const masterKeys = await deriveKeys(password, target, onProgress);
+  const keys = await importKey(await decryptBytes(target.userKey, masterKeys));
+  keys.account = account;
+  return keys;
+}
+
+// Bitwarden's RSA EncStrings: 3 is RSA-2048 OAEP with SHA-256, 4 the same
+// with SHA-1, which is what clients write for organization keys. Both are the
+// bare ciphertext, without IV or MAC.
+const RSA_HASH = { 3: "SHA-256", 4: "SHA-1" };
+
+async function rsaDecrypt(encString, pkcs8) {
+  const [type, payload] = encString.split(".", 2);
+  if (!RSA_HASH[type] || !payload || payload.includes("|")) {
+    throw new Error(`Unsupported organization key type ${type}`);
+  }
+  const key = await crypto.subtle.importKey(
+    "pkcs8", pkcs8, { name: "RSA-OAEP", hash: RSA_HASH[type] }, false, ["decrypt"]);
+  return new Uint8Array(await crypto.subtle.decrypt({ name: "RSA-OAEP" }, key, b64(payload)));
 }
 
 // Plain by design: ids and dates. Every other string of a cipher is an
@@ -677,35 +725,63 @@ async function decryptFields(value, keys, name = "") {
 }
 
 // Returns the same { folders, items } shape a decrypted export has, plus the
-// entries that failed. One damaged entry must not cost the rest of the vault,
-// so entries fail one at a time, and keep their name where it still opens, so
-// the owner knows which credential to fetch from another copy.
+// entries that failed and what each part contributed. One damaged entry must
+// not cost the rest of the vault, so entries fail one at a time, and keep
+// their name where it still opens, so the owner knows which credential to
+// fetch from another copy. An organization whose key does not open fails as
+// one row that names it and its size. Items of an organization carry its name.
 async function readSnapshot(snapshot, userKey) {
+  const account = snapshotAccounts(snapshot)[userKey.account ?? 0];
   const folders = [];
   const items = [];
   const failed = [];
-  for (const f of snapshot.folders || []) {
+  for (const f of account.folders || []) {
     try {
       folders.push({ id: f.id, name: await decrypt(f.name, userKey) });
     } catch (e) {
       failed.push({ id: f.id, error: e.message });
     }
   }
-  for (const cipher of snapshot.ciphers || []) {
-    if (cipher.deletedDate) continue;
-    let keys = userKey;
-    try {
-      const { key, ...fields } = cipher;
-      if (key) keys = await importKey(await decryptBytes(key, userKey));
-      items.push(await decryptFields(fields, keys));
-    } catch (e) {
-      let name = null;
-      try { name = await decrypt(cipher.name, keys); } catch { /* the name is damaged too */ }
-      failed.push({ id: cipher.id, name, error: e.message });
+  const readCiphers = async (ciphers, partKey, organization) => {
+    let read = 0;
+    for (const cipher of ciphers || []) {
+      if (cipher.deletedDate) continue;
+      let keys = partKey;
+      try {
+        const { key, ...fields } = cipher;
+        if (key) keys = await importKey(await decryptBytes(key, partKey));
+        const item = await decryptFields(fields, keys);
+        if (organization) item.organization = organization;
+        items.push(item);
+        read++;
+      } catch (e) {
+        let name = null;
+        try { name = await decrypt(cipher.name, keys); } catch { /* the name is damaged too */ }
+        failed.push({ id: cipher.id, name, error: e.message });
+      }
     }
+    return read;
+  };
+
+  const parts = [{ organization: null, entries: await readCiphers(account.ciphers, userKey, null) }];
+  let privateKey = null;
+  for (const org of accountOrganizations(snapshot, account)) {
+    let orgKey;
+    try {
+      if (!privateKey) {
+        if (!account.privateKey) throw new Error("the account carries no private key");
+        privateKey = await decryptBytes(account.privateKey, userKey);
+      }
+      orgKey = await importKey(await rsaDecrypt(org.keys[account.id], privateKey));
+    } catch (e) {
+      const n = (org.ciphers || []).filter((c) => !c.deletedDate).length;
+      failed.push({ id: org.id, name: `Organization ${org.name}, all ${n} entries`, error: e.message });
+      continue;
+    }
+    parts.push({ organization: org.name, entries: await readCiphers(org.ciphers, orgKey, org.name) });
   }
   items.sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
-  return { folders, items, failed };
+  return { folders, items, failed, parts };
 }
 
 // ------------------------------------------------------------------ totp ---
@@ -790,11 +866,31 @@ function ready() {
   if (on) $("pw").focus();
 }
 
+// A snapshot can hold several accounts, each opened with its own master
+// password. The list names each by its email and the organizations it opens.
+function showAccounts() {
+  $("account").textContent = "";
+  let data = null, accounts = [];
+  try {
+    data = JSON.parse(fileText);
+    if (data.format === SNAPSHOT_FORMAT) accounts = snapshotAccounts(data);
+  } catch { /* reported on unlock, with the reason */ }
+  for (const [i, a] of accounts.entries()) {
+    const parts = ["personal vault", ...accountOrganizations(data, a).map((o) => o.name)];
+    const option = document.createElement("option");
+    option.value = String(i);
+    option.textContent = `${a.salt} (${parts.join(", ")})`;
+    $("account").append(option);
+  }
+  $("accounts").classList.toggle("hidden", accounts.length < 2);
+}
+
 async function takeFile(f) {
   if (!f) return;
   try {
     fileText = await f.text();
     fileName = f.name;
+    showAccounts();
     // textContent, not innerHTML: the file name is attacker-controlled if the
     // archive came from someone else, and script-src 'unsafe-inline' would run it.
     $("drop").textContent = "";
@@ -865,7 +961,7 @@ $("go").addEventListener("click", async () => {
     let keys;
     try {
       if (snapshot) {
-        keys = await unlockSnapshot(password, data, progress);
+        keys = await unlockSnapshot(password, data, progress, Number($("account").value || 0));
       } else {
         keys = await deriveKeys(password, data, progress);
         await decrypt(data.encKeyValidation_DO_NOT_EDIT, keys);
@@ -894,10 +990,19 @@ $("go").addEventListener("click", async () => {
       name: `${f.name ?? "(entry with a damaged name)"} (damaged)`, damaged: true,
     }))];
 
+    // Which account was opened and what each of its parts holds, once there is
+    // more than one part to tell apart.
+    let parts = "";
+    if (snapshot && (vault.parts.length > 1 || snapshotAccounts(data).length > 1)) {
+      const counts = vault.parts.map((p) => (p.organization
+        ? `${p.entries} in ${p.organization}` : `${p.entries} personal`));
+      parts = ` for ${snapshotAccounts(data)[keys.account].salt}: ${counts.join(", ")}`;
+    }
+
     folders = Object.fromEntries((vault.folders || []).map((f) => [f.id, f.name]));
     entries = (vault.items || []).map((it) => ({
       it,
-      hay: [it.name, it.login?.username, folders[it.folderId],
+      hay: [it.name, it.login?.username, folders[it.folderId], it.organization,
             it.sshKey?.keyFingerprint, it.identity?.email, it.notes,
             ...(it.login?.uris || []).map((u) => u.uri)].filter(Boolean).join(" ").toLowerCase(),
     }));
@@ -908,7 +1013,7 @@ $("go").addEventListener("click", async () => {
     // which file is open, not repeat how to open one.
     $("title").textContent = fileName;
     $("sub").textContent =
-      `${readable} entries, decrypted in this window only${unreadable}`;
+      `${readable} ${readable === 1 ? "entry" : "entries"}${parts}, decrypted in this window only${unreadable}`;
     $("unlock").classList.add("hidden");
     $("result").classList.remove("hidden");
     render("");
@@ -1079,6 +1184,7 @@ function render(query) {
         body.append(p);
         return;
       }
+      if (it.organization) body.append(fieldRow("Organization", it.organization));
       if (folders[it.folderId]) body.append(fieldRow("Folder", folders[it.folderId]));
       if (it.login?.username) body.append(fieldRow("Username", it.login.username));
       if (it.login?.password) body.append(fieldRow("Password", it.login.password, true));

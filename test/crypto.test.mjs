@@ -6,7 +6,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { argon2id as nobleArgon2id } from "@noble/hashes/argon2.js";
 
 import { loadCrypto } from "../tools/crypto.mjs";
-import { FIXTURE_PASSWORD, MORE_FIELDS, VAULT } from "../tools/make-fixtures.mjs";
+import {
+  ACCOUNTS, CLUB, FAMILY, FIXTURE_PASSWORD, MORE_FIELDS, SECOND_PASSWORD, SECOND_VAULT, VAULT,
+} from "../tools/make-fixtures.mjs";
 
 const crypto2 = await loadCrypto();
 const fixture = (name) =>
@@ -170,8 +172,80 @@ test("a damaged entry keeps its name when the name still opens", async () => {
 });
 
 test("a snapshot of an unknown format version is refused by name", async () => {
-  const data = { ...fixture("snapshot-pbkdf2.json"), version: 2 };
-  await assert.rejects(() => crypto2.unlockSnapshot(FIXTURE_PASSWORD, data), /version 1/);
+  const data = { ...fixture("snapshot-pbkdf2.json"), version: 3 };
+  await assert.rejects(() => crypto2.unlockSnapshot(FIXTURE_PASSWORD, data), /version 1 or 2/);
+});
+
+// ----------------------------------------------- several accounts (version 2) ---
+
+const inOrg = (vault, organization) =>
+  vault.items.map(({ folderId, ...item }) => ({ ...item, organization }));
+
+test("each account of a version 2 snapshot opens with its own password", async () => {
+  const data = fixture("snapshot-multi.json");
+  assert.equal(data.accounts.length, 2);
+  assert.notEqual(data.accounts[0].kdfType, data.accounts[1].kdfType, "the fixture should cover both KDFs");
+
+  const first = await crypto2.readSnapshot(data, await crypto2.unlockSnapshot(FIXTURE_PASSWORD, data, null, 0));
+  assert.deepEqual(first.failed, []);
+  assert.deepEqual(first.folders, VAULT.folders);
+  assert.deepEqual(first.items, byName([
+    ...VAULT.items, ...inOrg(FAMILY, "Example Family"), ...inOrg(CLUB, "Example Club"),
+  ]));
+  assert.deepEqual(first.parts, [
+    { organization: null, entries: VAULT.items.length },
+    { organization: "Example Family", entries: FAMILY.items.length },
+    { organization: "Example Club", entries: CLUB.items.length },
+  ]);
+
+  // The second account is a member of the family only, not of the club.
+  const second = await crypto2.readSnapshot(data, await crypto2.unlockSnapshot(SECOND_PASSWORD, data, null, 1));
+  assert.deepEqual(second.failed, []);
+  assert.deepEqual(second.items, byName([...SECOND_VAULT.items, ...inOrg(FAMILY, "Example Family")]));
+});
+
+test("an organization item with a key of its own opens under the organization key", async () => {
+  const data = fixture("snapshot-multi.json");
+  const family = data.organizations.find((o) => o.name === "Example Family");
+  assert.ok(family.ciphers.some((c) => c.key), "the fixture lost its item-keyed organization entry");
+  assert.match(family.keys[ACCOUNTS[0].id], /^4\./);
+});
+
+test("one account's password does not open another account", async () => {
+  const data = fixture("snapshot-multi.json");
+  await assert.rejects(() => crypto2.unlockSnapshot(FIXTURE_PASSWORD, data, null, 1), /MAC mismatch/);
+  await assert.rejects(() => crypto2.unlockSnapshot(SECOND_PASSWORD, data, null, 0), /MAC mismatch/);
+  await assert.rejects(() => crypto2.unlockSnapshot(FIXTURE_PASSWORD, data, null, 2), /no account 2/);
+});
+
+test("the accounts and the organizations each one opens are listed without a key", () => {
+  const data = fixture("snapshot-multi.json");
+  const accounts = crypto2.snapshotAccounts(data);
+  assert.deepEqual(accounts.map((a) => a.salt), ACCOUNTS.map((a) => a.email));
+  assert.deepEqual(crypto2.accountOrganizations(data, accounts[1]).map((o) => o.name), ["Example Family"]);
+  // A version 1 snapshot is one account, member of nothing.
+  const single = fixture("snapshot-pbkdf2.json");
+  assert.equal(crypto2.snapshotAccounts(single).length, 1);
+  assert.deepEqual(crypto2.accountOrganizations(single, crypto2.snapshotAccounts(single)[0]), []);
+});
+
+test("an organization whose key does not open is named, and the rest still opens", async () => {
+  const data = fixture("snapshot-multi-damaged-org.json");
+  const vault = await crypto2.readSnapshot(data, await crypto2.unlockSnapshot(SECOND_PASSWORD, data, null, 1));
+  assert.deepEqual(vault.items, byName(SECOND_VAULT.items));
+  assert.equal(vault.failed.length, 1);
+  assert.equal(vault.failed[0].name, `Organization Example Family, all ${FAMILY.items.length} entries`);
+  // The first account's copy of the same key is intact.
+  const first = await crypto2.readSnapshot(data, await crypto2.unlockSnapshot(FIXTURE_PASSWORD, data, null, 0));
+  assert.deepEqual(first.failed, []);
+});
+
+test("an organization key of an unknown type is refused by name", async () => {
+  const data = fixture("snapshot-multi.json");
+  const family = data.organizations.find((o) => o.name === "Example Family");
+  family.keys[ACCOUNTS[1].id] = `6.${family.keys[ACCOUNTS[1].id].slice(2)}|bWFj`;
+  const vault = await crypto2.readSnapshot(data, await crypto2.unlockSnapshot(SECOND_PASSWORD, data, null, 1));
+  assert.match(vault.failed[0].error, /organization key type 6/);
 });
 
 test("progress is reported for Argon2id and reaches 1", async () => {

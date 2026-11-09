@@ -2,7 +2,9 @@ import { test, expect } from "@playwright/test";
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { FIXTURE_PASSWORD, DEMO_PASSWORD, PBKDF2, buildExport } from "../tools/make-fixtures.mjs";
+import {
+  FIXTURE_PASSWORD, DEMO_PASSWORD, PBKDF2, SECOND_PASSWORD, buildExport,
+} from "../tools/make-fixtures.mjs";
 
 const path = (p) => fileURLToPath(new URL(p, import.meta.url));
 const VAULT_HTML = path("../vault.html");
@@ -251,6 +253,64 @@ test("lists every entry of a large vault, not a first page of it", async ({ page
   writeFileSync(file, JSON.stringify(buildExport({ folders: [], items }, FIXTURE_PASSWORD, PBKDF2)));
   await unlock(page, file, FIXTURE_PASSWORD);
   await expect(page.locator(".entry")).toHaveCount(450);
+});
+
+test("offers the accounts of a snapshot and opens the one chosen", async ({ page }) => {
+  await page.goto(`file://${VAULT_HTML}`);
+  await page.locator("#file").setInputFiles(path("fixtures/snapshot-multi.json"));
+  await expect(page.locator("#accounts")).toBeVisible();
+  await expect(page.locator("#account option")).toHaveText([
+    "ada@example.com (personal vault, Example Family, Example Club)",
+    "grace@example.com (personal vault, Example Family)",
+  ]);
+  await page.locator("#account").selectOption("1");
+  await page.locator("#pw").fill(SECOND_PASSWORD);
+  await page.locator("#go").click();
+  await expect(page.locator("#result")).toBeVisible();
+  await expect(page.locator("#sub")).toContainText(
+    "3 entries for grace@example.com: 1 personal, 2 in Example Family");
+
+  const entry = page.locator(".entry", { hasText: "Family Streaming" });
+  await entry.locator("summary").click();
+  await expect(entry.locator("dl.f", { hasText: "Organization" })).toContainText("Example Family");
+  const row = entry.locator("dl.f", { hasText: "Password" });
+  await row.locator("button.icon").click();
+  await expect(row.locator("dd .val")).toHaveText("family-streaming-password");
+
+  await page.locator("#q").fill("example family");
+  await expect(page.locator("#count")).toHaveText("2 of 3 entries");
+});
+
+test("takes the first account unless another is chosen", async ({ page }) => {
+  await page.goto(`file://${VAULT_HTML}`);
+  await page.locator("#file").setInputFiles(path("fixtures/snapshot-multi.json"));
+  await page.locator("#pw").fill(SECOND_PASSWORD);
+  await page.locator("#go").click();
+  await expect(page.locator("#msg")).toHaveText("Wrong master password.");
+
+  await page.locator("#pw").fill(FIXTURE_PASSWORD);
+  await page.locator("#go").click();
+  await expect(page.locator("#sub")).toContainText(
+    "9 entries for ada@example.com: 6 personal, 2 in Example Family, 1 in Example Club");
+});
+
+test("shows no account choice for a single-account snapshot", async ({ page }) => {
+  await page.goto(`file://${VAULT_HTML}`);
+  await page.locator("#file").setInputFiles(path("fixtures/snapshot-pbkdf2.json"));
+  await expect(page.locator("#drop")).toContainText("kB loaded");
+  await expect(page.locator("#accounts")).toBeHidden();
+});
+
+test("lists an organization that does not open as damaged and opens the rest", async ({ page }) => {
+  await page.goto(`file://${VAULT_HTML}`);
+  await page.locator("#file").setInputFiles(path("fixtures/snapshot-multi-damaged-org.json"));
+  await page.locator("#account").selectOption("1");
+  await page.locator("#pw").fill(SECOND_PASSWORD);
+  await page.locator("#go").click();
+  await expect(page.locator("#sub")).toContainText("1 entry for grace@example.com: 1 personal");
+  await expect(page.locator("#sub")).toContainText("1 could not be read");
+  await expect(page.locator(".entry", { hasText: "(damaged)" }))
+    .toContainText("Organization Example Family, all 2 entries");
 });
 
 test("makes no network requests at any point", async ({ page }) => {

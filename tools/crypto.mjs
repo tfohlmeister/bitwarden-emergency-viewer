@@ -7,7 +7,7 @@ export const VAULT_HTML = fileURLToPath(new URL("../vault.html", import.meta.url
 
 const EXPORTS = [
   "deriveKeys", "decrypt", "decryptBytes", "totp", "argon2id", "blake2b", "hPrime",
-  "unlockSnapshot", "readSnapshot",
+  "unlockSnapshot", "readSnapshot", "snapshotAccounts", "accountOrganizations", "rsaDecrypt",
 ];
 
 export function readCryptoBlock(path = VAULT_HTML) {
