@@ -91,10 +91,13 @@ function encryptFields(value, keys, name = "") {
 // An account snapshot of the same vault: the user key wrapped by the master
 // key, salted with the account email, and every field encrypted on its own.
 // Items listed in withItemKey get a key of their own, as newer clients write.
-export function buildSnapshot(vault, password, kdf, { email = "ada@example.com", withItemKey = [] } = {}) {
-  const userKeyRaw = randomBytes(64);
+// userKeyRaw is passed in by buildMultiSnapshot, which wraps the account's
+// private key with it.
+export function buildSnapshot(vault, password, kdf, {
+  email = "ada@example.com", withItemKey = [], userKeyRaw = randomBytes(64),
+} = {}) {
   const userKey = splitKey(userKeyRaw);
-  const snapshot = {
+  return {
     format: "bitwarden-account-snapshot",
     version: 1,
     created: "2026-11-06T02:00:00Z",
@@ -110,9 +113,6 @@ export function buildSnapshot(vault, password, kdf, { email = "ada@example.com",
       return { ...encryptFields(item, splitKey(itemKeyRaw)), key: encString(itemKeyRaw, userKey) };
     }),
   };
-  // Not part of the file; buildMultiSnapshot wraps organization keys with it.
-  Object.defineProperty(snapshot, "userKeyRaw", { value: userKeyRaw });
-  return snapshot;
 }
 
 // A version 2 snapshot: several accounts, each with its own password, KDF and
@@ -122,16 +122,16 @@ export function buildSnapshot(vault, password, kdf, { email = "ada@example.com",
 // organizations: [{ id, name, members: [account index], vault, withItemKey }]
 export function buildMultiSnapshot(accounts, organizations) {
   const built = accounts.map(({ id, email, password, kdf, vault, withItemKey = [] }) => {
-    const single = buildSnapshot(vault, password, kdf, { email, withItemKey });
+    const userKeyRaw = randomBytes(64);
+    const single = buildSnapshot(vault, password, kdf, { email, withItemKey, userKeyRaw });
     const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     return {
       publicKey,
-      userKey: single.userKeyRaw,
       account: {
         id, salt: email, kdfType: kdf.kdfType, kdfIterations: kdf.kdfIterations,
         kdfMemory: kdf.kdfMemory ?? null, kdfParallelism: kdf.kdfParallelism ?? null,
         userKey: single.userKey,
-        privateKey: encString(privateKey.export({ type: "pkcs8", format: "der" }), splitKey(single.userKeyRaw)),
+        privateKey: encString(privateKey.export({ type: "pkcs8", format: "der" }), splitKey(userKeyRaw)),
         folders: single.folders,
         ciphers: single.ciphers,
       },
@@ -418,5 +418,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 export {
   VAULT, MORE_FIELDS, PBKDF2, ARGON2ID, ARGON2ID_DEFAULTS, FIXTURE_PASSWORD, DEMO_PASSWORD,
-  SECOND_PASSWORD, ACCOUNTS, SECOND_VAULT, FAMILY, CLUB, ORGANIZATIONS,
+  SECOND_PASSWORD, ACCOUNTS, SECOND_VAULT, FAMILY, CLUB,
 };

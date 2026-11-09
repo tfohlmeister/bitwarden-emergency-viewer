@@ -852,6 +852,9 @@ async function totp(secret, period = 30, digits = 6) {
 // -------------------------------------------------------------------- ui ---
 
 const $ = (id) => document.getElementById(id);
+// The lists of an entry. A file that carries something else there must not
+// stop the page from listing the rest of the vault.
+const asList = (v) => (Array.isArray(v) ? v : []);
 let fileText = null, fileName = "", entries = [], folders = {};
 
 function say(text, kind = "") {
@@ -1004,7 +1007,7 @@ $("go").addEventListener("click", async () => {
       it,
       hay: [it.name, it.login?.username, folders[it.folderId], it.organization,
             it.sshKey?.keyFingerprint, it.identity?.email, it.notes,
-            ...(it.login?.uris || []).map((u) => u.uri)].filter(Boolean).join(" ").toLowerCase(),
+            ...asList(it.login?.uris).map((u) => u?.uri)].filter(Boolean).join(" ").toLowerCase(),
     }));
 
     $("pw").value = "";
@@ -1194,14 +1197,14 @@ function render(query) {
         // to type in by hand where this page cannot compute the code.
         body.append(fieldRow("2FA key", it.login.totp, true));
       }
-      for (const u of it.login?.uris || []) if (u.uri) body.append(fieldRow("Address", u.uri));
+      for (const u of asList(it.login?.uris)) if (u?.uri) body.append(fieldRow("Address", u.uri));
       // A passkey cannot be used from here. Listing it tells the owner that
       // this login needs the account's other way in.
-      for (const c of it.login?.fido2Credentials || []) {
+      for (const c of asList(it.login?.fido2Credentials)) {
         const site = [c.rpId || c.rpName, c.userName].filter(Boolean).join(" · ");
         body.append(fieldRow("Passkey", site || "(no site stored)"));
       }
-      for (const f of it.fields || []) {
+      for (const f of asList(it.fields)) {
         if (f.type === 3) {
           // Linked (3): no value of its own, it stands for one of the entry's fields.
           const target = LINKED[f.linkedId];
@@ -1256,7 +1259,7 @@ function render(query) {
       }
       // Older passwords, for the server or device that never got the new one.
       // Bitwarden also keeps old values of hidden fields here, as "name: value".
-      const history = (it.passwordHistory || []).filter((h) => h.password);
+      const history = asList(it.passwordHistory).filter((h) => h?.password);
       if (history.length) {
         const h = document.createElement("details");
         h.className = "history";

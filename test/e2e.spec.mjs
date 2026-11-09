@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -311,6 +311,15 @@ test("lists an organization that does not open as damaged and opens the rest", a
   await expect(page.locator("#sub")).toContainText("1 could not be read");
   await expect(page.locator(".entry", { hasText: "(damaged)" }))
     .toContainText("Organization Example Family, all 2 entries");
+});
+
+test("lists the vault even when an entry carries something else than a list", async ({ page }, testInfo) => {
+  const data = JSON.parse(readFileSync(path("fixtures/snapshot-pbkdf2.json"), "utf8"));
+  data.ciphers.find((c) => c.login).login.uris = {};
+  const file = testInfo.outputPath("odd-uris.json");
+  writeFileSync(file, JSON.stringify(data));
+  await unlock(page, file, FIXTURE_PASSWORD);
+  await expect(page.locator("#count")).toHaveText("6 entries");
 });
 
 test("makes no network requests at any point", async ({ page }) => {

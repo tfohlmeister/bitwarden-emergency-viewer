@@ -2,7 +2,9 @@
 // vault.html opens. Nothing is decrypted here: the snapshot is the encrypted
 // vault exactly as the server stores it, trimmed to what opening it needs. That
 // is the point of the format. Whoever produces it needs a login to the server,
-// but never a master password.
+// but never a master password. The author's recovery build takes it with its
+// own copy of this logic (vault-snapshot.mjs, in a private repository): a
+// change to what goes into the snapshot belongs in both.
 //
 // Format, version 2 (snapshotFromSyncs): several accounts and their organizations.
 //   format, version              "bitwarden-account-snapshot", 2
@@ -83,7 +85,9 @@ export function snapshotFromSync(sync, { server, serverVersion, created = new Da
 
 // Organization ciphers come from the first sync that holds them: every member
 // sees the same ciphertext, and a later sync only adds what the earlier
-// member's collections did not show.
+// member's collections did not show. A cipher two syncs show differently
+// (favorite aside, which is per member) changed in between, and mixing the two
+// states under one organization is refused.
 export function snapshotFromSyncs(syncs, { server, serverVersion, created = new Date().toISOString() }) {
   const accounts = syncs.map(account);
   if (accounts.some((a) => !a.id)) throw new Error("sync answer has no profile.id");
@@ -100,7 +104,12 @@ export function snapshotFromSyncs(syncs, { server, serverVersion, created = new 
       if (!org?.keys[accounts[i].id]) {
         throw new Error("sync answer carries an organization cipher without the organization's key");
       }
-      if (!org.ciphers.has(c.id)) org.ciphers.set(c.id, pick(c, ORG_CIPHER_FIELDS));
+      const shared = ({ favorite, ...rest }) => JSON.stringify(rest);
+      const cipher = pick(c, ORG_CIPHER_FIELDS);
+      if (!org.ciphers.has(c.id)) org.ciphers.set(c.id, cipher);
+      else if (shared(org.ciphers.get(c.id)) !== shared(cipher)) {
+        throw new Error("an organization cipher differs between the syncs");
+      }
     }
   }
   return {

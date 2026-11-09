@@ -146,8 +146,9 @@ An organization's items sit under the organization key, which reaches each
 member wrapped with that member's RSA public key:
 
 ```
-privateKey = decrypt(account.privateKey) under userKey    PKCS#8, RSA-2048
-orgKey     = RSA-OAEP(SHA-1) decrypt of keys[account.id]   EncString type 4
+privateKey = decrypt(account.privateKey) under userKey    PKCS#8 RSA key
+orgKey     = RSA-OAEP decrypt of keys[account.id]         EncString type 4 (SHA-1)
+                                                           or 3 (SHA-256)
 itemKey    = decrypt(cipher.key) under orgKey              where a cipher has one
 ```
 
@@ -196,8 +197,9 @@ through the **official Bitwarden CLI**, lets that CLI write the export, and
 takes a snapshot from the server's sync answers: of that account, of a second
 one with PBKDF2, and of an organization both belong to, whose items the CLI
 writes under the organization key it unwrapped itself. One entry with a key of
-its own goes in through the API for each of them, because whether the CLI
-writes item keys depends on what the server advertises. CI runs it on
+its own goes in through the API into the first account and one into the
+organization, because whether the CLI writes item keys depends on what the
+server advertises. CI runs it on
 every push and once a week, so a format change upstream shows up here instead
 of during a recovery.
 
