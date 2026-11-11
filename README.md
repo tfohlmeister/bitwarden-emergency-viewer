@@ -20,7 +20,9 @@ Other tools decrypt the same format. [`astik-dev/bitwarden-json-decryptor`][1]
 does the cryptography and prints the JSON. That is enough when you know what you
 are looking for. This one is built for the moment when you do not:
 
-- a searchable list, so you do not have to know the entry's name
+- a searchable list, so you do not have to know the entry's name; when the
+  vault holds organizations, with a tab for the personal vault, one per
+  organization and one for all of them, each showing its hits while you search
 - passwords hidden until you click, and every value copyable
 - **live TOTP codes with a countdown**, Steam Guard included, and the key
   itself, to set up an authenticator app on a new phone

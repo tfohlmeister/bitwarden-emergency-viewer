@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
-  FIXTURE_PASSWORD, DEMO_PASSWORD, PBKDF2, SECOND_PASSWORD, buildExport,
+  FIXTURE_PASSWORD, DEMO_PASSWORD, PBKDF2, SECOND_PASSWORD, VAULT, buildExport,
 } from "../tools/make-fixtures.mjs";
 
 const path = (p) => fileURLToPath(new URL(p, import.meta.url));
@@ -22,6 +22,7 @@ test("opens a PBKDF2 export and lists every entry", async ({ page }) => {
   await unlock(page, path("fixtures/pbkdf2.json"), FIXTURE_PASSWORD);
   await expect(page.locator("#count")).toHaveText("6 entries");
   await expect(page.locator(".entry")).toHaveCount(6);
+  await expect(page.locator("#tabs")).toBeHidden();
 });
 
 test("opens an Argon2id export", async ({ page }) => {
@@ -269,7 +270,12 @@ test("offers the accounts of a snapshot and opens the one chosen", async ({ page
   await expect(page.locator("#result")).toBeVisible();
   await expect(page.locator("#sub")).toContainText(
     "3 entries for grace@example.com: 1 personal, 2 in Example Family");
+  await expect(page.locator("#tabs button")).toHaveText(["Personal 1", "Example Family 2", "All 3"]);
+  await expect(page.locator("#count")).toHaveText("1 entry");
+  await expect(page.locator(".entry", { hasText: "Family Streaming" })).toHaveCount(0);
 
+  await page.locator("#tabs button", { hasText: "Example Family" }).click();
+  await expect(page.locator("#count")).toHaveText("2 entries");
   const entry = page.locator(".entry", { hasText: "Family Streaming" });
   await entry.locator("summary").click();
   await expect(entry.locator("dl.f", { hasText: "Organization" })).toContainText("Example Family");
@@ -278,7 +284,14 @@ test("offers the accounts of a snapshot and opens the one chosen", async ({ page
   await expect(row.locator("dd .val")).toHaveText("family-streaming-password");
 
   await page.locator("#q").fill("example family");
+  await expect(page.locator("#count")).toHaveText("2 of 2 entries");
+  await page.locator("#tabs button", { hasText: "Personal" }).click();
+  await expect(page.locator("#count")).toHaveText("0 of 1 entry, 2 in other tabs");
+  await expect(page.locator("#tabs button")).toHaveText(["Personal 0", "Example Family 2", "All 2"]);
+
+  await page.locator("#tabs button", { hasText: "All" }).click();
   await expect(page.locator("#count")).toHaveText("2 of 3 entries");
+  await expect(page.locator(".entry .badge")).toHaveText(["Example Family", "Example Family"]);
 });
 
 test("takes the first account unless another is chosen", async ({ page }) => {
@@ -292,6 +305,41 @@ test("takes the first account unless another is chosen", async ({ page }) => {
   await page.locator("#go").click();
   await expect(page.locator("#sub")).toContainText(
     "9 entries for ada@example.com: 6 personal, 2 in Example Family, 1 in Example Club");
+  await expect(page.locator("#tabs button")).toHaveText(
+    ["Personal 6", "Example Club 1", "Example Family 2", "All 9"]);
+  await expect(page.locator(".entry")).toHaveCount(6);
+});
+
+test("two organizations of the same name get a tab each", async ({ page }, testInfo) => {
+  const data = JSON.parse(readFileSync(path("fixtures/snapshot-multi.json"), "utf8"));
+  data.organizations.find((o) => o.name === "Example Club").name = "Example Family";
+  const file = testInfo.outputPath("same-name.json");
+  writeFileSync(file, JSON.stringify(data));
+  await unlock(page, file, FIXTURE_PASSWORD);
+  await expect(page.locator("#tabs button")).toHaveText(
+    ["Personal 6", "Example Family 2", "Example Family 1", "All 9"]);
+  await page.locator("#tabs button").nth(2).click();
+  await expect(page.locator(".entry")).toHaveText(["Club Lockerada"]);
+});
+
+test("an organization export stays one list", async ({ page }, testInfo) => {
+  const items = VAULT.items.map((it) => ({ ...it, organizationId: "a0000000-0000-4000-8000-000000000001" }));
+  const data = buildExport({ folders: VAULT.folders, items }, FIXTURE_PASSWORD, PBKDF2);
+  const file = testInfo.outputPath("org-export.json");
+  writeFileSync(file, JSON.stringify(data));
+  await unlock(page, file, FIXTURE_PASSWORD);
+  await expect(page.locator("#tabs")).toBeHidden();
+  await expect(page.locator("#count")).toHaveText("6 entries");
+});
+
+test("the mixed list with organization badges fits a phone screen", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await unlock(page, path("fixtures/snapshot-multi.json"), FIXTURE_PASSWORD);
+  await page.locator("#tabs button", { hasText: "All" }).click();
+  await expect(page.locator(".entry .badge")).toHaveCount(3);
+  const overflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBe(0);
 });
 
 test("shows no account choice for a single-account snapshot", async ({ page }) => {
@@ -309,6 +357,9 @@ test("lists an organization that does not open as damaged and opens the rest", a
   await page.locator("#go").click();
   await expect(page.locator("#sub")).toContainText("1 entry for grace@example.com: 1 personal");
   await expect(page.locator("#sub")).toContainText("1 could not be read");
+  await expect(page.locator("#tabs button")).toHaveText(["Personal 1", "Example Family 1", "All 2"]);
+  await page.locator("#tabs button", { hasText: "Example Family" }).click();
+  await expect(page.locator(".entry")).toHaveCount(1);
   await expect(page.locator(".entry", { hasText: "(damaged)" }))
     .toContainText("Organization Example Family, all 2 entries");
 });
