@@ -16,7 +16,7 @@
     "check": "npm run test && npm run test:e2e"
   },
   "devDependencies": {
-    "@bitwarden/cli": "^2026.10.1",
+    "@bitwarden/cli": "^2026.11.1",
     "@noble/hashes": "^2.0.1",
     "@playwright/test": "^1.65.1"
   },
